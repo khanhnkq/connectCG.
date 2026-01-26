@@ -97,7 +97,7 @@ public class GroupController {
     }
 
     @PostMapping("/{id}/invite")
-    @PreAuthorize("isAuthenticated() and (hasRole('ADMIN') or @groupSecurity.isGroupAdmin(#id))")
+    @PreAuthorize("isAuthenticated() and (hasRole('ADMIN') or @groupSecurity.isGroupMember(#id))")
     public ResponseEntity<Void> inviteMembers(@PathVariable("id") Integer id, @RequestBody List<Integer> userIds,
             Authentication authentication) {
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
