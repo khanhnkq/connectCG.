@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -302,9 +303,27 @@ public class GroupServiceImpl implements GroupService {
             GroupMemberId inviterPk = new GroupMemberId();
             inviterPk.setGroupId(groupId);
             inviterPk.setUserId(member.getInvitedById());
-            GroupMember inviter = groupMemberRepository.findById(inviterPk).orElse(null);
-            if (inviter != null && "ADMIN".equals(inviter.getRole())) {
+            groupMemberRepository.findById(inviterPk).ifPresent(inviter -> {
+                if ("ADMIN".equals(inviter.getRole())) {
+                    // Note: Here we consider ADMIN role or being the OWNER (if owner role is also
+                    // ADMIN)
+                    // If your system separates OWNER and ADMIN, you might need extra checks or use
+                    // group.getOwner().getId()
+                }
+            });
+
+            // Improved check for Admin/Owner
+            Group inviterGroup = member.getGroup();
+            if (inviterGroup.getOwner() != null && inviterGroup.getOwner().getId().equals(member.getInvitedById())) {
                 invitedByAdmin = true;
+            } else {
+                GroupMemberId inviterPkAlt = new GroupMemberId();
+                inviterPkAlt.setGroupId(groupId);
+                inviterPkAlt.setUserId(member.getInvitedById());
+                Optional<GroupMember> inviterOpt = groupMemberRepository.findById(inviterPkAlt);
+                if (inviterOpt.isPresent() && "ADMIN".equals(inviterOpt.get().getRole())) {
+                    invitedByAdmin = true;
+                }
             }
         }
 
@@ -313,6 +332,9 @@ public class GroupServiceImpl implements GroupService {
         if (invitedByAdmin || isPublicGroup) {
             member.setStatus("ACCEPTED");
             member.setJoinedAt(Instant.now());
+        } else {
+            // Private group invited by a regular member
+            member.setStatus("REQUESTED");
         }
 
         groupMemberRepository.save(member);
