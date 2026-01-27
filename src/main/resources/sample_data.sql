@@ -2,7 +2,6 @@
 -- Sample Data for Testing Group Invitations
 -- =============================================================================
 
-USE connectcg_be;
 
 -- Insert sample cities (ignore if already exists)
 INSERT IGNORE INTO `cities` (`code`, `name`, `region`) VALUES
