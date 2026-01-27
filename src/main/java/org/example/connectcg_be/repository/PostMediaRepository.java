@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface PostMediaRepository extends JpaRepository<PostMedia, PostMediaId> {
+    java.util.List<PostMedia> findAllByPostId(Integer postId);
 }

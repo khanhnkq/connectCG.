@@ -30,6 +30,38 @@ public class GroupController {
     MediaService mediaService;
     @Autowired
     GroupMemberService groupMemberService;
+    @Autowired
+    org.example.connectcg_be.service.PostService postService;
+
+    @GetMapping("/{id}/posts/pending")
+    @PreAuthorize("hasRole('ADMIN') or @groupSecurity.isGroupAdmin(#id)")
+    public List<org.example.connectcg_be.dto.GroupPostDTO> getPendingPosts(@PathVariable("id") Integer id) {
+        return postService.getPendingPosts(id);
+    }
+
+    @GetMapping("/{id}/posts")
+    @PreAuthorize("isAuthenticated()")
+    public List<org.example.connectcg_be.dto.GroupPostDTO> getGroupPosts(@PathVariable("id") Integer id) {
+        return postService.getApprovedPosts(id);
+    }
+
+    @PostMapping("/{id}/posts/{postId}/approve")
+    @PreAuthorize("hasRole('ADMIN') or @groupSecurity.isGroupAdmin(#id)")
+    public ResponseEntity<Void> approvePost(@PathVariable("id") Integer id, @PathVariable("postId") Integer postId,
+            Authentication authentication) {
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        postService.approvePost(postId, userPrincipal.getId());
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/{id}/posts/{postId}/reject")
+    @PreAuthorize("hasRole('ADMIN') or @groupSecurity.isGroupAdmin(#id)")
+    public ResponseEntity<Void> rejectPost(@PathVariable("id") Integer id, @PathVariable("postId") Integer postId,
+            Authentication authentication) {
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        postService.rejectPost(postId, userPrincipal.getId());
+        return ResponseEntity.ok().build();
+    }
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
