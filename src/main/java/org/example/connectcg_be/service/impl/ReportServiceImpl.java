@@ -31,8 +31,6 @@ public class ReportServiceImpl implements ReportService {
         this.notificationService = notificationService;
     }
 
-    @Autowired
-    private org.example.connectcg_be.repository.PostRepository postRepository;
 
     @Override
     public List<ReportResponse> getAllReports() {
