@@ -18,4 +18,7 @@ public interface FriendRequestRepository extends JpaRepository<FriendRequest, In
 
     // Kiểm tra xem đã có lời mời PENDING giữa 2 người chưa
     boolean existsBySenderIdAndReceiverIdAndStatus(Integer senderId, Integer receiverId, String status);
+
+    // Tìm lời mời để hủy
+    Optional<FriendRequest> findBySenderIdAndReceiverIdAndStatus(Integer senderId, Integer receiverId, String status);
 }

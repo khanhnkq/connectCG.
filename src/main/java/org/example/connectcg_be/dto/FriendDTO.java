@@ -20,4 +20,5 @@ public class FriendDTO {
     private String avatarUrl;
     private LocalDate dateOfBirth;
     private String occupation;
+    private String relationshipStatus;
 }

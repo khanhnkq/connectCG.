@@ -22,7 +22,8 @@ public interface FriendRepository extends JpaRepository<Friend, FriendId> {
             "c.name, " +
             "m.url, " +
             "p.dateOfBirth, " +
-            "p.occupation) " +
+            "p.occupation, " +
+            "CAST('NONE' AS string)) " +
             "FROM Friend f " +
             "LEFT JOIN UserProfile p ON p.user = f.friend " +
             "LEFT JOIN p.city c " +

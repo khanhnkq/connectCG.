@@ -195,4 +195,13 @@ public class FriendRequestServiceImpl implements FriendRequestService {
 
         notificationService.sendNotification(notification, receiver);
     }
+
+    @Override
+    @Transactional
+    public void cancelFriendRequest(Integer senderId, Integer receiverId) {
+        FriendRequest request = friendRequestRepository.findBySenderIdAndReceiverIdAndStatus(senderId, receiverId, "PENDING")
+                .orElseThrow(() -> new RuntimeException("Friend request not found"));
+        
+        friendRequestRepository.delete(request);
+    }
 }

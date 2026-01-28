@@ -23,6 +23,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final UserRepository userRepository;
     private final UserProfileRepository userProfileRepository;
     private final FriendRepository friendRepository;
+    private final FriendRequestRepository friendRequestRepository;
     private final UserAvatarRepository userAvatarRepository;
     private final UserCoverRepository userCoverRepository;
     private final UserGalleryRepository userGalleryRepository;
@@ -104,7 +105,9 @@ public class UserProfileServiceImpl implements UserProfileService {
     private String determineRelationship(Integer targetUserId, Integer currentUserId) {
         if (currentUserId == null) return "STRANGER";
         if (targetUserId.equals(currentUserId)) return "SELF";
-        return friendRepository.existsByUserIdAndFriendId(currentUserId, targetUserId) ? "FRIEND" : "STRANGER";
+        if (friendRepository.existsByUserIdAndFriendId(currentUserId, targetUserId)) return "FRIEND";
+        if (friendRequestRepository.existsBySenderIdAndReceiverIdAndStatus(currentUserId, targetUserId, "PENDING")) return "PENDING";
+        return "STRANGER";
     }
 
     private String getCurrentAvatar(Integer userId) {
