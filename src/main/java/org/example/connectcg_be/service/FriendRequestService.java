@@ -9,4 +9,5 @@ public interface FriendRequestService {
     void acceptFriendRequest(Integer requestId, Integer userId);
     void rejectFriendRequest(Integer requestId, Integer userId);
     void sendFriendRequest(Integer senderId, Integer receiverId);
+    void cancelFriendRequest(Integer senderId, Integer receiverId);
 }

@@ -75,4 +75,17 @@ public class FriendRequestController {
         friendRequestService.sendFriendRequest(userId, receiverId);
         return ResponseEntity.ok().build();
     }
+
+    /**
+     * API Hủy lời mời kết bạn đã gửi.
+     */
+    @DeleteMapping("/cancel/{receiverId}")
+    public ResponseEntity<Void> cancelRequest(
+            @AuthenticationPrincipal UserPrincipal currentUser,
+            @PathVariable Integer receiverId) {
+        
+        Integer userId = (currentUser != null) ? currentUser.getId() : null;
+        friendRequestService.cancelFriendRequest(userId, receiverId);
+        return ResponseEntity.ok().build();
+    }
 }
