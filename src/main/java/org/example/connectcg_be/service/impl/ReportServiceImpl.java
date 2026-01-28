@@ -31,6 +31,9 @@ public class ReportServiceImpl implements ReportService {
         this.notificationService = notificationService;
     }
 
+    @Autowired
+    private org.example.connectcg_be.repository.PostRepository postRepository;
+
     @Override
     public List<ReportResponse> getAllReports() {
         return reportRepository.findAll().stream().map(this::mapToDto).toList();
@@ -70,6 +73,7 @@ public class ReportServiceImpl implements ReportService {
         }
         return dto;
     }
+
 
     @Override
     public Report getReportById(Integer id) {
