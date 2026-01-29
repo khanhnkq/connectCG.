@@ -9,6 +9,7 @@ import org.example.connectcg_be.security.JwtTokenProvider;
 import org.example.connectcg_be.service.AuthService;
 import org.example.connectcg_be.service.EmailService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,8 @@ import java.util.UUID;
 
 @Service
 public class AuthServiceImpl implements AuthService {
+    @Value("${frontend.url}")
+    private String frontendUrl;
 
     @Autowired
     private UserRepository userRepository;
@@ -70,7 +73,7 @@ public class AuthServiceImpl implements AuthService {
         VerificationToken verificationToken = new VerificationToken(token, savedUser);
         verificationTokenRepository.save(verificationToken);
 
-        String link = "http://localhost:5173/verify-email?token=" + token;
+        String link = frontendUrl+"/verify-email?token=" + token;
         String htmlContent = """
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f4f4f4; padding: 20px;">
                     <div style="background-color: #ffffff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
@@ -177,7 +180,7 @@ public class AuthServiceImpl implements AuthService {
         String token = UUID.randomUUID().toString();
         PasswordResetToken myToken = new PasswordResetToken(token, user);
         tokenRepository.save(myToken);
-        String link = "http://localhost:5173/reset-password?token=" + token;
+        String link = frontendUrl+"/reset-password?token=" + token;
         String htmlContent = """
                     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f4f4f4; padding: 20px;">
                         <div style="background-color: #ffffff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
