@@ -28,8 +28,7 @@ public class AuthServiceImpl implements AuthService {
     private UserRepository userRepository;
     @Autowired
     private UserProfileRepository userProfileRepository;
-    @Autowired
-    private CityRepository cityRepository;
+
     @Autowired
     private MediaRepository mediaRepository; // [NEW]
     @Autowired
@@ -131,11 +130,11 @@ public class AuthServiceImpl implements AuthService {
             } catch (Exception e) {
             }
         }
-        if (request.getCityId() != null) {
-            try {
-                cityRepository.findById(Integer.parseInt(request.getCityId())).ifPresent(profile::setCity);
-            } catch (Exception e) {
-            }
+        if (request.getCityCode() != null) {
+            profile.setCityCode(request.getCityCode());
+        }
+        if (request.getCityName() != null) {
+            profile.setCityName(request.getCityName());
         }
 
         UserProfile savedProfile = userProfileRepository.save(profile);
