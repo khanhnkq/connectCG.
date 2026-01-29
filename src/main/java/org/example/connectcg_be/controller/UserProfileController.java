@@ -52,7 +52,7 @@ public class UserProfileController {
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         System.out.println(currentUser.getId());
-        Integer currentUserId = (currentUser != null) ? currentUser.getId() : null;
+        Integer currentUserId = currentUser.getId();
         UserProfileDTO profile = userProfileService.getUserProfile(userId, currentUserId);
         return ResponseEntity.ok(profile);
     }
