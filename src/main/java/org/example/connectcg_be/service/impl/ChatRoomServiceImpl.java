@@ -36,6 +36,9 @@ public class ChatRoomServiceImpl implements ChatRoomService {
     private UserAvatarRepository userAvatarRepository;
 
     @Autowired
+    private org.example.connectcg_be.service.MediaService mediaService;
+
+    @Autowired
     private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
 
     @Override
@@ -187,6 +190,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
             throw new RuntimeException("Only admins can change group avatar");
         }
 
+        mediaService.resolveOwnedMedia(avatarUrl, currentUser.getId());
         room.setAvatarUrl(avatarUrl);
         room = chatRoomRepository.save(room);
 

@@ -42,7 +42,7 @@ public class CommentServiceImpl implements CommentService {
     @Autowired
     private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
     @Autowired
-    private MediaRepository mediaRepository;
+    private org.example.connectcg_be.service.MediaService mediaService;
 
     private CommentDTO convertToDTO(Comment comment) {
         CommentDTO dto = new CommentDTO();
@@ -165,13 +165,7 @@ public class CommentServiceImpl implements CommentService {
 
         // --- Xử lý Media (Ảnh) cho comment ---
         if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
-            Media media = new Media();
-            media.setUrl(request.getImageUrl());
-            media.setUploader(user);
-            media.setType("IMAGE"); // Mặc định là IMAGE cho comment
-            media.setUploadedAt(Instant.now());
-            media.setIsDeleted(false);
-            media = mediaRepository.save(media);
+            Media media = mediaService.resolveOwnedMedia(request.getImageUrl(), user.getId());
             comment.setMedia(media);
         }
 

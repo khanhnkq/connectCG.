@@ -49,6 +49,26 @@ public class Media {
     @Column(name = "size_bytes")
     private Integer sizeBytes;
 
+    @Size(max = 20)
+    @Column(name = "storage_provider", length = 20)
+    private String storageProvider;
+
+    @Size(max = 100)
+    @Column(name = "storage_bucket", length = 100)
+    private String storageBucket;
+
+    @Size(max = 512)
+    @Column(name = "object_key", length = 512)
+    private String objectKey;
+
+    @Size(max = 100)
+    @Column(name = "content_type", length = 100)
+    private String contentType;
+
+    @Size(max = 20)
+    @Column(name = "category", length = 20)
+    private String category;
+
     @ColumnDefault("CURRENT_TIMESTAMP")
     @Column(name = "uploaded_at")
     private Instant uploadedAt;

@@ -111,7 +111,7 @@ public class GroupServiceImpl implements GroupService {
 
         Media media = null;
         if (request.getImage() != null && !request.getImage().isEmpty()) {
-            media = mediaService.createCoverMedia(request.getImage(), userId);
+            media = mediaService.resolveOwnedMedia(request.getImage(), userId);
         }
 
         Group group = new Group();
@@ -199,7 +199,7 @@ public class GroupServiceImpl implements GroupService {
         group.setPrivacy(request.getPrivacy());
 
         if (request.getImage() != null && !request.getImage().isEmpty()) {
-            Media media = mediaService.createCoverMedia(request.getImage(), userId);
+            Media media = mediaService.resolveOwnedMedia(request.getImage(), userId);
             group.setCoverMedia(media);
         }
 

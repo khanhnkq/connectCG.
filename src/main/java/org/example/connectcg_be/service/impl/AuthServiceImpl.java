@@ -30,9 +30,9 @@ public class AuthServiceImpl implements AuthService {
     private UserProfileRepository userProfileRepository;
 
     @Autowired
-    private MediaRepository mediaRepository; // [NEW]
-    @Autowired
     private UserAvatarRepository userAvatarRepository; // [NEW]
+    @Autowired
+    private org.example.connectcg_be.service.MediaService mediaService;
     @Autowired
     private PasswordEncoder passwordEncoder;
     @Autowired
@@ -155,12 +155,7 @@ public class AuthServiceImpl implements AuthService {
         }
         // Lưu Avatar nếu có
         if (request.getAvatarUrl() != null && !request.getAvatarUrl().isEmpty()) {
-            Media media = new Media();
-            media.setUploader(user);
-            media.setUrl(request.getAvatarUrl());
-            media.setType("IMAGE");
-            media.setIsDeleted(false);
-            Media savedMedia = mediaRepository.save(media);
+            Media savedMedia = mediaService.resolveOwnedMedia(request.getAvatarUrl(), user.getId());
             UserAvatar avatar = new UserAvatar();
             avatar.setUser(user);
             avatar.setMedia(savedMedia);

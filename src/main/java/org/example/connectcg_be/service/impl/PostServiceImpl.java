@@ -49,7 +49,7 @@ public class PostServiceImpl implements PostService {
     private org.example.connectcg_be.repository.GroupRepository groupRepository;
 
     @Autowired
-    private MediaRepository mediaRepository;
+    private org.example.connectcg_be.service.MediaService mediaService;
 
     @Autowired
     private FriendRepository friendRepository;
@@ -556,13 +556,7 @@ public class PostServiceImpl implements PostService {
                 continue;
             }
 
-            Media media = new Media();
-            media.setUploader(uploader);
-            media.setUrl(url);
-            media.setType(detectMediaType(url));
-            media.setUploadedAt(Instant.now());
-            media.setIsDeleted(false);
-            media = mediaRepository.save(media);
+            Media media = mediaService.resolveOwnedMedia(url, uploader.getId());
 
             PostMedia postMedia = new PostMedia();
             postMedia.setId(new PostMediaId(post.getId(), media.getId()));
@@ -571,17 +565,6 @@ public class PostServiceImpl implements PostService {
             postMedia.setDisplayOrder(i);
             postMediaRepository.save(postMedia);
         }
-    }
-
-    private String detectMediaType(String url) {
-        if (url == null) {
-            return "IMAGE";
-        }
-        String lower = url.toLowerCase();
-        if (lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.contains("video")) {
-            return "VIDEO";
-        }
-        return "IMAGE";
     }
 
     private void cleanupPendingPosts(User author, org.example.connectcg_be.entity.Group group) {

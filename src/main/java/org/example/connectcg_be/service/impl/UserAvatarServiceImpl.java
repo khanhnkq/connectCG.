@@ -22,8 +22,8 @@ public class UserAvatarServiceImpl implements UserAvatarService {
     public org.example.connectcg_be.dto.UserProfileDTO updateAvatar(Integer userId, String imageUrl) {
         org.example.connectcg_be.entity.User user = userService.findByIdUser(userId);
 
-        // 1. Create Media
-        org.example.connectcg_be.entity.Media media = mediaService.createCoverMedia(imageUrl, userId);
+        // 1. Reuse media created by the authenticated upload API
+        org.example.connectcg_be.entity.Media media = mediaService.resolveOwnedMedia(imageUrl, userId);
 
         // 2. Deactivate old avatar
         org.example.connectcg_be.entity.UserAvatar currentAvatar = userAvatarRepository

@@ -22,8 +22,8 @@ public class UserCoverServiceImpl implements UserCoverService {
     public org.example.connectcg_be.dto.UserProfileDTO updateCover(Integer userId, String imageUrl) {
         org.example.connectcg_be.entity.User user = userService.findByIdUser(userId);
 
-        // 1. Create Media
-        org.example.connectcg_be.entity.Media media = mediaService.createCoverMedia(imageUrl, userId);
+        // 1. Reuse media created by the authenticated upload API
+        org.example.connectcg_be.entity.Media media = mediaService.resolveOwnedMedia(imageUrl, userId);
 
         // 2. Deactivate old cover
         java.util.Optional<org.example.connectcg_be.entity.UserCover> currentCoverOpt = userCoverRepository
