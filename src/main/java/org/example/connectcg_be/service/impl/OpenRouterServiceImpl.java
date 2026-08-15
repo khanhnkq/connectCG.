@@ -12,19 +12,19 @@ import java.util.*;
 @Service
 public class OpenRouterServiceImpl implements AiModerationService {
 
-    @Value("${openrouter.api.key}")
+    @Value("${openrouter.api.key:}")
     private String apiKey;
 
-    @Value("${openrouter.api.url}")
+    @Value("${openrouter.api.url:https://openrouter.ai/api/v1/chat/completions}")
     private String apiUrl;
 
-    @Value("${openrouter.model}")
+    @Value("${openrouter.model:stepfun/step-3.5-flash:free}")
     private String model;
 
-    @Value("${openrouter.site.url}")
+    @Value("${openrouter.site.url:http://localhost:5173}")
     private String siteUrl;
 
-    @Value("${openrouter.site.name}")
+    @Value("${openrouter.site.name:ConnectCG}")
     private String siteName;
 
     private final RestTemplate restTemplate = new RestTemplate();

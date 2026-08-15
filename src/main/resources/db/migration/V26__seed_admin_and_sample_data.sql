@@ -1,12 +1,15 @@
 -- =============================================================================
--- SAMPLE DATA SCRIPT CHO HỆ THỐNG CONNECT SOCIAL
--- Tài khoản Admin và Dữ liệu mẫu (Users, Friends, Groups, Posts, Comments, Chat)
--- Mật khẩu chung cho tất cả tài khoản: password123
+-- V26__seed_admin_and_sample_data.sql
+-- Seed Admin account and comprehensive sample data for Connect Social Platform
+-- Password for all accounts: password123
+-- BCrypt Hash: $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
 -- =============================================================================
 
 SET FOREIGN_KEY_CHECKS = 0;
 
--- 1. TÀI KHOẢN USERS (1 Admin + 5 Regular Users)
+-- -----------------------------------------------------------------------------
+-- 1. SEED USERS (1 Admin + 5 Regular Users)
+-- -----------------------------------------------------------------------------
 INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `role`, `is_locked`, `is_deleted`, `is_enabled`, `created_at`)
 VALUES
 (1, 'admin', 'admin@connect.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'ADMIN', FALSE, FALSE, TRUE, NOW()),
@@ -20,7 +23,9 @@ ON DUPLICATE KEY UPDATE
     `is_enabled` = VALUES(`is_enabled`),
     `password_hash` = VALUES(`password_hash`);
 
--- 2. HỒ SƠ NGƯỜI DÙNG (PROFILES)
+-- -----------------------------------------------------------------------------
+-- 2. SEED USER PROFILES
+-- -----------------------------------------------------------------------------
 INSERT INTO `user_profiles` (`id`, `user_id`, `city_code`, `city_name`, `full_name`, `date_of_birth`, `gender`, `bio`, `occupation`, `marital_status`, `looking_for`)
 VALUES
 (1, 1, '01', 'Hà Nội', 'Quản Trị Viên Hệ Thống', '1990-01-01', 'OTHER', 'Tài khoản quản trị chính thức của mạng xã hội Connect.', 'System Administrator', 'SINGLE', 'NETWORKING'),
@@ -35,7 +40,9 @@ ON DUPLICATE KEY UPDATE
     `bio` = VALUES(`bio`),
     `occupation` = VALUES(`occupation`);
 
--- 3. HÌNH ẢNH & AVATAR
+-- -----------------------------------------------------------------------------
+-- 3. SEED MEDIA & AVATARS
+-- -----------------------------------------------------------------------------
 INSERT INTO `media` (`id`, `uploader_id`, `url`, `type`, `uploaded_at`)
 VALUES
 (1, 1, 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300', 'IMAGE', NOW()),
@@ -58,7 +65,10 @@ VALUES
 (6, 6, 6, TRUE, NOW())
 ON DUPLICATE KEY UPDATE `media_id` = VALUES(`media_id`);
 
--- 4. BẠN BÈ & LỜI MỜI KẾT BẠN
+-- -----------------------------------------------------------------------------
+-- 4. SEED FRIENDSHIPS (Hai chiều) & FRIEND REQUESTS
+-- -----------------------------------------------------------------------------
+-- John Doe (2) kết bạn với Jane (3), Bob (4), Alice (5)
 INSERT IGNORE INTO `friends` (`user_id`, `friend_id`, `created_at`)
 VALUES
 (2, 3, NOW()), (3, 2, NOW()),
@@ -66,11 +76,14 @@ VALUES
 (2, 5, NOW()), (5, 2, NOW()),
 (3, 5, NOW()), (5, 3, NOW());
 
+-- Lời mời kết bạn đang chờ: Charlie (6) gửi cho John Doe (2)
 INSERT IGNORE INTO `friend_requests` (`id`, `sender_id`, `receiver_id`, `status`, `created_at`)
 VALUES
 (1, 6, 2, 'PENDING', NOW());
 
--- 5. NHÓM CỘNG ĐỒNG (GROUPS)
+-- -----------------------------------------------------------------------------
+-- 5. SEED GROUPS & GROUP MEMBERS
+-- -----------------------------------------------------------------------------
 INSERT INTO `groups` (`id`, `owner_id`, `name`, `description`, `privacy`, `created_at`)
 VALUES
 (1, 2, 'Cộng Đồng Lập Trình Viên Việt Nam (DevVN)', 'Nơi giao lưu, trao đổi kiến thức về Spring Boot, React, DevOps, Cloud và kiến trúc phần mềm.', 'PUBLIC', NOW()),
@@ -80,47 +93,68 @@ ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `description` = VALUES(`descrip
 
 INSERT IGNORE INTO `group_members` (`group_id`, `user_id`, `role`, `status`, `joined_at`)
 VALUES
+-- Group 1
 (1, 2, 'ADMIN', 'ACCEPTED', NOW()),
 (1, 3, 'MEMBER', 'ACCEPTED', NOW()),
 (1, 4, 'MEMBER', 'ACCEPTED', NOW()),
 (1, 5, 'MEMBER', 'ACCEPTED', NOW()),
 (1, 6, 'MEMBER', 'ACCEPTED', NOW()),
+-- Group 2
 (2, 3, 'ADMIN', 'ACCEPTED', NOW()),
 (2, 2, 'MEMBER', 'ACCEPTED', NOW()),
 (2, 5, 'MEMBER', 'ACCEPTED', NOW()),
+-- Group 3
 (3, 4, 'ADMIN', 'ACCEPTED', NOW()),
 (3, 2, 'MEMBER', 'ACCEPTED', NOW()),
 (3, 3, 'MEMBER', 'ACCEPTED', NOW());
 
--- 6. BÀI VIẾT (POSTS)
+-- -----------------------------------------------------------------------------
+-- 6. SEED POSTS (Newsfeed & Groups)
+-- -----------------------------------------------------------------------------
 INSERT INTO `posts` (`id`, `author_id`, `group_id`, `content`, `visibility`, `status`, `ai_status`, `is_pinned`, `comment_count`, `react_count`, `share_count`, `created_at`)
 VALUES
 (1, 1, NULL, '📢 [THÔNG BÁO QUẢN TRỊ] Chào mừng các thành viên đến với mạng xã hội Connect! Hệ thống đã được nâng cấp toàn diện với kiến trúc Microservices, Realtime WebSocket và Kiểm duyệt AI tự động. Chúc mọi người có trải nghiệm tuyệt vời!', 'PUBLIC', 'APPROVED', 'CLEAN', TRUE, 2, 5, 1, NOW() - INTERVAL 2 DAY),
+
 (2, 2, NULL, 'Hôm nay mình vừa tối ưu xong module Realtime Chat bằng WebSocket (STOMP + SockJS) kết hợp Spring Boot 3. Tốc độ phản hồi dưới 20ms cực mượt! Có anh em nào quan tâm đến kiến trúc này không, mình sẽ viết bài chia sẻ chi tiết nhé 🚀🔥', 'PUBLIC', 'APPROVED', 'CLEAN', FALSE, 3, 8, 2, NOW() - INTERVAL 1 DAY),
+
 (3, 3, NULL, 'Vừa hoàn thành bộ Design System mới với tông màu hiện đại, hỗ trợ chuẩn Dark Mode và Accessible WCAG. Thiết kế giao diện không chỉ là làm cho đẹp mà là tạo ra trải nghiệm mượt mà nhất cho người dùng 🎨✨', 'PUBLIC', 'APPROVED', 'CLEAN', FALSE, 1, 6, 0, NOW() - INTERVAL 12 HOUR),
+
 (4, 4, NULL, 'Hoàng hôn chiều nay tại bãi biển Mỹ Khê - Đà Nẵng. Ánh nắng rực rỡ cuối ngày luôn mang lại cảm giác bình yên đến lạ 📸🌊', 'PUBLIC', 'APPROVED', 'CLEAN', FALSE, 2, 9, 3, NOW() - INTERVAL 6 HOUR),
+
 (5, 5, 1, '🔥 [DevVN Tuyển Dụng] Team mình đang tìm kiếm 02 Senior Java/Spring Boot Developer & 01 Frontend React/Vite cho dự án FinTech thế hệ mới. Môi trường hybrid, đãi ngộ hấp dẫn. Các bạn quan tâm comment hoặc inbox mình nhé!', 'PUBLIC', 'APPROVED', 'CLEAN', FALSE, 1, 4, 1, NOW() - INTERVAL 3 HOUR)
 ON DUPLICATE KEY UPDATE `content` = VALUES(`content`), `status` = VALUES(`status`);
 
+-- Gắn ảnh cho bài viết số 3 và số 4
 INSERT IGNORE INTO `post_media` (`post_id`, `media_id`, `display_order`)
 VALUES
 (3, 10, 0),
 (4, 11, 0);
 
--- 7. BÌNH LUẬN (COMMENTS)
+-- -----------------------------------------------------------------------------
+-- 7. SEED COMMENTS & REPLIES
+-- -----------------------------------------------------------------------------
 INSERT INTO `comments` (`id`, `post_id`, `author_id`, `parent_id`, `content`, `created_at`)
 VALUES
+-- Comment cho bài viết số 1 (Admin)
 (1, 1, 2, NULL, 'Giao diện mới rất đẹp và mượt mà! Cảm ơn đội ngũ admin 👏', NOW() - INTERVAL 40 HOUR),
 (2, 1, 3, NULL, 'Ủng hộ Connect phát triển mạnh mẽ hơn nữa 🎉', NOW() - INTERVAL 38 HOUR),
+
+-- Comment cho bài viết số 2 (John Doe)
 (3, 2, 3, NULL, 'Bài viết rất hữu ích John ơi, chia sẻ luôn phần xử lý authentication token qua WebSocket handshake nhé!', NOW() - INTERVAL 20 HOUR),
 (4, 2, 2, 3, '@Jane Smith Nhất trí luôn Jane, mình sẽ đưa cả code mẫu interceptor vào bài viết nhé!', NOW() - INTERVAL 18 HOUR),
 (5, 2, 6, NULL, 'Tuyệt vời anh John, em đang rất cần tài liệu này để tham khảo cho dự án trường!', NOW() - INTERVAL 15 HOUR),
+
+-- Comment cho bài viết số 4 (Bob Wilson)
 (6, 4, 3, NULL, 'Góc chụp đỉnh quá anh Bob ơi! Màu hoàng hôn tuyệt đẹp 🌅', NOW() - INTERVAL 4 HOUR),
 (7, 4, 2, NULL, 'Nhìn ảnh lại muốn bay vào Đà Nẵng ngay và luôn ✈️', NOW() - INTERVAL 3 HOUR),
+
+-- Comment cho bài viết tuyển dụng số 5 (Alice Brown)
 (8, 5, 6, NULL, 'Em đã gửi CV qua email rồi chị Alice check giúp em nhé!', NOW() - INTERVAL 2 HOUR)
 ON DUPLICATE KEY UPDATE `content` = VALUES(`content`);
 
--- 8. TƯƠNG TÁC CẢM XÚC (REACTIONS)
+-- -----------------------------------------------------------------------------
+-- 8. SEED REACTIONS (LIKE, LOVE)
+-- -----------------------------------------------------------------------------
 INSERT IGNORE INTO `reactions` (`user_id`, `post_id`, `type`, `created_at`)
 VALUES
 (2, 1, 'LOVE', NOW()),
@@ -128,19 +162,24 @@ VALUES
 (4, 1, 'LIKE', NOW()),
 (5, 1, 'LIKE', NOW()),
 (6, 1, 'LOVE', NOW()),
+
 (1, 2, 'LIKE', NOW()),
 (3, 2, 'LOVE', NOW()),
 (4, 2, 'LIKE', NOW()),
 (5, 2, 'LOVE', NOW()),
 (6, 2, 'LIKE', NOW()),
+
 (2, 3, 'LOVE', NOW()),
 (4, 3, 'LIKE', NOW()),
 (5, 3, 'LOVE', NOW()),
+
 (2, 4, 'LOVE', NOW()),
 (3, 4, 'LOVE', NOW()),
 (5, 4, 'LIKE', NOW());
 
--- 9. PHÒNG CHAT & THÀNH VIÊN
+-- -----------------------------------------------------------------------------
+-- 9. SEED CHAT ROOMS & MEMBERS
+-- -----------------------------------------------------------------------------
 INSERT INTO `chat_rooms` (`id`, `type`, `name`, `created_by`, `firebase_room_key`, `last_message_at`, `is_active`, `created_at`)
 VALUES
 (1, 'DIRECT', 'John Doe - Jane Smith', 2, 'direct_room_user_2_3', NOW() - INTERVAL 1 HOUR, TRUE, NOW() - INTERVAL 1 DAY),
@@ -149,11 +188,14 @@ ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 INSERT IGNORE INTO `chat_room_members` (`chat_room_id`, `user_id`, `role`, `joined_at`)
 VALUES
+-- Room 1 (Direct)
 (1, 2, 'MEMBER', NOW() - INTERVAL 1 DAY),
 (1, 3, 'MEMBER', NOW() - INTERVAL 1 DAY),
+-- Room 2 (Group)
 (2, 2, 'ADMIN', NOW() - INTERVAL 2 DAY),
 (2, 3, 'MEMBER', NOW() - INTERVAL 2 DAY),
 (2, 5, 'MEMBER', NOW() - INTERVAL 2 DAY),
 (2, 6, 'MEMBER', NOW() - INTERVAL 2 DAY);
 
+-- Bật lại kiểm tra khóa ngoại
 SET FOREIGN_KEY_CHECKS = 1;

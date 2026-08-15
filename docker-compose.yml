@@ -1,0 +1,124 @@
+services:
+  # =========================================================================
+  # 1. Cơ sở dữ liệu MySQL 8.0
+  # =========================================================================
+  mysql:
+    image: mysql:8.0
+    container_name: connect_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-connect_db}
+      MYSQL_USER: ${DB_USER:-connect_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-connect_password}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-rootpassword}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - connect-network
+
+  # =========================================================================
+  # 2. Local Mail Service (Mailpit - SMTP Server & Web UI xem Email)
+  # =========================================================================
+  mail:
+    image: axllent/mailpit:latest
+    container_name: connect_mail
+    restart: unless-stopped
+    ports:
+      - "${MAIL_SMTP_PORT:-1025}:1025"   # Cổng SMTP để Backend gửi email
+      - "${MAIL_UI_PORT:-8025}:8025"     # Giao diện Web xem hộp thư đến tại http://localhost:8025
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_DATABASE: "" # In-memory database
+    networks:
+      - connect-network
+
+  # =========================================================================
+  # 3. Backend Spring Boot (Java 17 / Flyway / WebSocket / Gemini AI)
+  # =========================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: connect-backend:latest
+    container_name: connect_backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mail:
+        condition: service_started
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      PORT: 8080
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      DB_URL: jdbc:mysql://mysql:3306/${DB_NAME:-connect_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh&createDatabaseIfNotExist=true
+      DB_USERNAME: ${DB_USER:-connect_user}
+      DB_PASSWORD: ${DB_PASSWORD:-connect_password}
+      JWT_SECRET: ${JWT_SECRET:-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+      MAIL_HOST: ${MAIL_HOST:-mail}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-false}
+      MAIL_FROM_EMAIL: ${MAIL_FROM_EMAIL:-noreply@connect.com}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Connect App}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
+      GEMINI_API_URL: ${GEMINI_API_URL:-https://generativelanguage.googleapis.com/v1beta/models}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      SITE_URL: ${SITE_URL:-http://localhost:5173}
+      SITE_NAME: ${SITE_NAME:-ConnectCG}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-dummy-google-client-id}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-dummy-google-client-secret}
+      FACEBOOK_CLIENT_ID: ${FACEBOOK_CLIENT_ID:-dummy-facebook-client-id}
+      FACEBOOK_CLIENT_SECRET: ${FACEBOOK_CLIENT_SECRET:-dummy-facebook-client-secret}
+    networks:
+      - connect-network
+
+  # =========================================================================
+  # 4. phpMyAdmin (Giao diện Web xem và quản lý Database)
+  # =========================================================================
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: connect_phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: ${DB_USER:-connect_user}
+      PMA_PASSWORD: ${DB_PASSWORD:-connect_password}
+      UPLOAD_LIMIT: 64M
+    ports:
+      - "${PMA_PORT:-8081}:80"
+    networks:
+      - connect-network
+
+# =============================================================================
+# Volumes & Networks
+# =============================================================================
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  connect-network:
+    driver: bridge
