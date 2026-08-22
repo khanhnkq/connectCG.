@@ -16,6 +16,8 @@ public class UserAvatarServiceImpl implements UserAvatarService {
     private org.example.connectcg_be.service.MediaService mediaService;
     @Autowired
     private org.example.connectcg_be.service.UserProfileService userProfileService;
+    @Autowired
+    private org.example.connectcg_be.cache.PublicProfileCache publicProfileCache;
 
     @Override
     @org.springframework.transaction.annotation.Transactional
@@ -42,6 +44,7 @@ public class UserAvatarServiceImpl implements UserAvatarService {
         userAvatarRepository.save(newAvatar);
 
         // 4. Return updated profile
+        publicProfileCache.invalidate(userId);
         return userProfileService.getUserProfile(userId, userId);
     }
 }

@@ -25,7 +25,7 @@ public interface MediaRepository extends JpaRepository<Media, Integer> {
             LEFT JOIN user_gallery ug ON ug.media_id = m.id
             LEFT JOIN post_media pm ON pm.media_id = m.id
             LEFT JOIN comments c ON c.media_id = m.id
-            LEFT JOIN `groups` g ON g.cover_media_id = m.id
+            LEFT JOIN groups g ON g.cover_media_id = m.id
             LEFT JOIN chat_rooms cr ON cr.avatar_url = m.url
             WHERE m.storage_provider = 'MINIO'
               AND m.is_deleted = FALSE

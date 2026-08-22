@@ -41,7 +41,7 @@ public class GroupServiceImpl implements GroupService {
     @Autowired
     private NotificationService notificationService;
     @Autowired
-    private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
+    private org.example.connectcg_be.service.PostRealtimeService postRealtimeService;
 
     @Override
     @Transactional
@@ -277,7 +277,7 @@ public class GroupServiceImpl implements GroupService {
         // Broadcast realtime
         org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(
                 "LEFT", groupId, group.getName(), userId, null);
-        messagingTemplate.convertAndSend("/topic/groups/membership", event);
+        postRealtimeService.publishMembershipEvent(groupId, event);
     }
 
     @Override
@@ -369,7 +369,7 @@ public class GroupServiceImpl implements GroupService {
             // Broadcast realtime
             org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(
                     "INVITED", groupId, group.getName(), userId, mapToMemberDTO(member));
-            messagingTemplate.convertAndSend("/topic/groups/membership", event);
+            postRealtimeService.publishMembershipEvent(groupId, event);
         }
     }
 
@@ -415,7 +415,9 @@ public class GroupServiceImpl implements GroupService {
                 inviterPkAlt.setGroupId(groupId);
                 inviterPkAlt.setUserId(member.getInvitedById());
                 Optional<GroupMember> inviterOpt = groupMemberRepository.findById(inviterPkAlt);
-                if (inviterOpt.isPresent() && "ADMIN".equals(inviterOpt.get().getRole())) {
+                if (inviterOpt.isPresent()
+                        && "ACCEPTED".equals(inviterOpt.get().getStatus())
+                        && "ADMIN".equals(inviterOpt.get().getRole())) {
                     invitedByAdmin = true;
                 }
             }
@@ -453,7 +455,7 @@ public class GroupServiceImpl implements GroupService {
         org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(
                 member.getStatus().equals("ACCEPTED") ? "APPROVED" : "REQUESTED",
                 groupId, member.getGroup().getName(), userId, mapToMemberDTO(member));
-        messagingTemplate.convertAndSend("/topic/groups/membership", event);
+        postRealtimeService.publishMembershipEvent(groupId, event);
     }
 
     @Override
@@ -475,7 +477,7 @@ public class GroupServiceImpl implements GroupService {
         // Broadcast realtime
         org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(
                 "LEFT", groupId, member.getGroup().getName(), userId, null);
-        messagingTemplate.convertAndSend("/topic/groups/membership", event);
+        postRealtimeService.publishMembershipEvent(groupId, event);
     }
 
     @Override
@@ -541,7 +543,7 @@ public class GroupServiceImpl implements GroupService {
                     // Broadcast realtime
                     org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(
                             "JOINED", groupId, group.getName(), userId, mapToMemberDTO(member));
-                    messagingTemplate.convertAndSend("/topic/groups/membership", event);
+                    postRealtimeService.publishMembershipEvent(groupId, event);
 
                     return;
                 }
@@ -603,7 +605,7 @@ public class GroupServiceImpl implements GroupService {
         org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(
                 "ACCEPTED".equals(member.getStatus()) ? "JOINED" : "REQUESTED",
                 groupId, group.getName(), userId, mapToMemberDTO(member));
-        messagingTemplate.convertAndSend("/topic/groups/membership", event);
+        postRealtimeService.publishMembershipEvent(groupId, event);
     }
 
     @Override
@@ -616,7 +618,7 @@ public class GroupServiceImpl implements GroupService {
         GroupMember admin = groupMemberRepository.findById(adminPk)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy admin trong nhóm"));
 
-        if (!"ADMIN".equals(admin.getRole())) {
+        if (!"ACCEPTED".equals(admin.getStatus()) || !"ADMIN".equals(admin.getRole())) {
             throw new RuntimeException("Chỉ admin mới có quyền phê duyệt yêu cầu");
         }
 
@@ -644,7 +646,7 @@ public class GroupServiceImpl implements GroupService {
         // Broadcast realtime
         org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(
                 "APPROVED", groupId, member.getGroup().getName(), targetUserId, mapToMemberDTO(member));
-        messagingTemplate.convertAndSend("/topic/groups/membership", event);
+        postRealtimeService.publishMembershipEvent(groupId, event);
     }
 
     @Override
@@ -674,7 +676,7 @@ public class GroupServiceImpl implements GroupService {
         // Broadcast realtime
         org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(
                 "REJECTED", groupId, member.getGroup().getName(), targetUserId, null);
-        messagingTemplate.convertAndSend("/topic/groups/membership", event);
+        postRealtimeService.publishMembershipEvent(groupId, event);
     }
 
     @Override
@@ -696,7 +698,9 @@ public class GroupServiceImpl implements GroupService {
         GroupMemberId adminPk = new GroupMemberId(groupId, adminId);
         GroupMember requester = groupMemberRepository.findById(adminPk).orElse(null);
 
-        boolean isRequesterAdmin = requester != null && "ADMIN".equals(requester.getRole());
+        boolean isRequesterAdmin = requester != null
+                && "ACCEPTED".equals(requester.getStatus())
+                && "ADMIN".equals(requester.getRole());
         boolean isRequesterOwner = group.getOwner().getId().equals(adminId);
 
         if (!isRequesterAdmin && !isRequesterOwner) {
@@ -705,6 +709,9 @@ public class GroupServiceImpl implements GroupService {
 
         if (targetUserId.equals(adminId)) {
             throw new RuntimeException("Bạn không thể ban chính mình");
+        }
+        if (group.getOwner().getId().equals(targetUserId)) {
+            throw new RuntimeException("Không thể ban chủ sở hữu nhóm");
         }
 
         GroupMemberId targetPk = new GroupMemberId(groupId, targetUserId);
@@ -723,7 +730,7 @@ public class GroupServiceImpl implements GroupService {
 
             org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(
                     "BANNED", groupId, group.getName(), targetUserId, null);
-            messagingTemplate.convertAndSend("/topic/groups/membership", event);
+            postRealtimeService.publishMembershipEvent(groupId, event);
 
             // Clean up: Hard delete all PENDING posts of the banned member in this group
             List<Post> spamPosts = postRepository.findAllByAuthorIdAndGroupIdAndStatusAndIsDeletedFalse(
@@ -733,7 +740,7 @@ public class GroupServiceImpl implements GroupService {
                     // Broadcast realtime delete so Admin UI updates instantly
                     org.example.connectcg_be.dto.PostEventDTO postEvent = new org.example.connectcg_be.dto.PostEventDTO(
                             "DELETED", null, p.getId());
-                    messagingTemplate.convertAndSend("/topic/posts", postEvent);
+                    postRealtimeService.publishPostEvent(p, postEvent);
 
                     postRepository.delete(p);
                 }
@@ -774,6 +781,9 @@ public class GroupServiceImpl implements GroupService {
 
         GroupMember newOwnerMember = groupMemberRepository.findById(newOwnerMemberId)
                 .orElseThrow(() -> new RuntimeException("Người dùng không phải thành viên trong nhóm"));
+        if (!"ACCEPTED".equals(newOwnerMember.getStatus())) {
+            throw new RuntimeException("Chỉ có thể chuyển quyền cho thành viên đang hoạt động");
+        }
 
         // 1. Update Group Owner Reference
         group.setOwner(newOwner);
@@ -828,7 +838,7 @@ public class GroupServiceImpl implements GroupService {
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy thông tin thành viên của người thực hiện"));
 
         // Check permission: Must be ADMIN or OWNER
-        boolean isRoleAdmin = "ADMIN".equals(actor.getRole());
+        boolean isRoleAdmin = "ACCEPTED".equals(actor.getStatus()) && "ADMIN".equals(actor.getRole());
         boolean isOwner = group.getOwner().getId().equals(actorId);
 
         if (!isRoleAdmin && !isOwner) {
@@ -842,6 +852,9 @@ public class GroupServiceImpl implements GroupService {
 
         GroupMember target = groupMemberRepository.findById(targetPk)
                 .orElseThrow(() -> new RuntimeException("Thành viên mục tiêu không tồn tại trong nhóm"));
+        if (!"ACCEPTED".equals(target.getStatus())) {
+            throw new RuntimeException("Chỉ có thể đổi vai trò của thành viên đang hoạt động");
+        }
 
         // Don't allow changing owner's role through this method directly if it's not a
         // transfer
@@ -878,6 +891,7 @@ public class GroupServiceImpl implements GroupService {
         GroupMember requester = groupMemberRepository.findById(requesterPk).orElse(null);
 
         boolean isAdmin = requester != null
+                && "ACCEPTED".equals(requester.getStatus())
                 && ("ADMIN".equals(requester.getRole()) || "OWNER".equals(requester.getRole()));
         boolean isOwner = group.getOwner() != null && group.getOwner().getId().equals(requesterId);
 
@@ -903,7 +917,9 @@ public class GroupServiceImpl implements GroupService {
         GroupMember admin = groupMemberRepository.findById(adminPk)
                 .orElseThrow(() -> new RuntimeException("Bạn không phải là thành viên của nhóm"));
 
-        boolean isAdminOrOwner = admin != null && ("ADMIN".equals(admin.getRole()) || "OWNER".equals(admin.getRole()));
+        boolean isAdminOrOwner = admin != null
+                && "ACCEPTED".equals(admin.getStatus())
+                && ("ADMIN".equals(admin.getRole()) || "OWNER".equals(admin.getRole()));
         boolean isOwner = group.getOwner() != null && group.getOwner().getId().equals(adminId);
 
         if (!isAdminOrOwner && !isOwner) {
@@ -935,6 +951,6 @@ public class GroupServiceImpl implements GroupService {
         // Broadcast realtime
         org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(
                 "UNBANNED", groupId, group.getName(), targetUserId, null);
-        messagingTemplate.convertAndSend("/topic/groups/membership", event);
+        postRealtimeService.publishMembershipEvent(groupId, event);
     }
 }

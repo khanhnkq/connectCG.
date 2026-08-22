@@ -4,11 +4,11 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.example.connectcg_be.entity.User;
-import org.example.connectcg_be.repository.UserProfileRepository;
 import org.example.connectcg_be.repository.UserRepository;
 import org.example.connectcg_be.security.JwtTokenProvider;
+import org.example.connectcg_be.security.AuthCookieService;
 import org.example.connectcg_be.security.UserPrincipal;
-import org.hibernate.annotations.Comment;
+import org.example.connectcg_be.service.RefreshTokenService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
@@ -26,7 +26,9 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
     @Autowired
     private UserRepository userRepository;
     @Autowired
-    private UserProfileRepository userProfileRepository;
+    private RefreshTokenService refreshTokenService;
+    @Autowired
+    private AuthCookieService authCookieService;
     @Value("${frontend.url}")
     private String frontendUrl;
 
@@ -46,12 +48,11 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
             }
         }
         User user = userRepository.findByEmail(email).orElseThrow();
-        // Generate Token
         UserPrincipal userPrincipal = UserPrincipal.create(user);
-        String token = tokenProvider.generateToken(userPrincipal);
-        boolean hasProfile = userProfileRepository.existsByUserId(user.getId());
-        // Redirect về Frontend kèm Token
-        String targetUrl = frontendUrl +"/oauth2/redirect?token=" + token + "&hasProfile=" + hasProfile;
+        RefreshTokenService.IssuedRefreshToken refreshToken = refreshTokenService.issue(user, request);
+        String accessToken = tokenProvider.generateToken(userPrincipal, refreshToken.familyId());
+        authCookieService.writeSessionCookies(response, accessToken, refreshToken.rawToken());
+        String targetUrl = frontendUrl + "/oauth2/redirect";
         getRedirectStrategy().sendRedirect(request, response, targetUrl);
     }
 }

@@ -1,6 +1,8 @@
 package org.example.connectcg_be.service.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.example.connectcg_be.cache.PublicProfileCache;
+import org.example.connectcg_be.cache.PublicProfileFragment;
 import org.example.connectcg_be.dto.*;
 import org.example.connectcg_be.entity.*;
 import org.example.connectcg_be.repository.*;
@@ -10,6 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
@@ -27,13 +31,12 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final UserAvatarRepository userAvatarRepository;
     private final UserCoverRepository userCoverRepository;
     private final UserHobbyRepository userHobbyRepository;
-    private final PostRepository postRepository;
+    private final org.example.connectcg_be.service.PostService postService;
     private final MediaRepository mediaRepository;
+    private final PublicProfileCache publicProfileCache;
 
     @Override
     public UserProfileDTO getUserProfile(Integer targetUserId, Integer currentUserId) {
-        System.out.println("====== getUserProfile called ======");
-        System.out.println("targetUserId: " + targetUserId + ", currentUserId: " + currentUserId);
         User targetUser = userRepository.findById(targetUserId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -41,6 +44,7 @@ public class UserProfileServiceImpl implements UserProfileService {
         boolean isFriendOrSelf = relationship.equals("SELF") || relationship.equals("FRIEND");
 
         UserProfile profile = userProfileRepository.findByUserId(targetUserId).orElse(null);
+        PublicProfileFragment publicFragment = getPublicFragment(targetUserId, profile);
 
         UserProfileDTO dto = UserProfileDTO.builder()
                 .userId(targetUser.getId())
@@ -54,7 +58,7 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .build();
 
         if (profile != null) {
-            dto.setFullName(profile.getFullName());
+            dto.setFullName(publicFragment.fullName());
             dto.setGender(profile.getGender());
             dto.setBio(profile.getBio());
             dto.setOccupation(profile.getOccupation());
@@ -72,15 +76,15 @@ public class UserProfileServiceImpl implements UserProfileService {
             }
         }
 
-        dto.setCurrentAvatarUrl(getCurrentAvatar(targetUserId));
-        dto.setCurrentCoverUrl(getCurrentCover(targetUserId));
+        dto.setCurrentAvatarUrl(publicFragment.avatarUrl());
+        dto.setCurrentCoverUrl(publicFragment.coverUrl());
 
         // Gallery is always returned (can be restricted later if needed)
         dto.setGallery(getGallery(targetUserId));
 
         dto.setHobbies(getHobbies(targetUserId));
         dto.setFriendsCount(friendRepository.countByUserId(targetUserId));
-        dto.setPostsCount(postRepository.countByAuthorIdAndStatusAndIsDeletedFalse(targetUserId, "APPROVED"));
+        dto.setPostsCount(postService.countPostsVisibleToUser(targetUserId, currentUserId));
 
         return dto;
     }
@@ -103,8 +107,20 @@ public class UserProfileServiceImpl implements UserProfileService {
                 currentUserId, keyword, gender, cityCode, maritalStatus, lookingFor,
                 currentUserCityCode, currentUserLookingFor, pageable);
 
+        List<Integer> userIds = page.getContent().stream()
+                .map(MemberSearchResponse::getUserId)
+                .toList();
+        Map<Integer, UserAvatar> avatarsByUserId = userIds.isEmpty()
+                ? Map.of()
+                : userAvatarRepository.findCurrentByUserIds(userIds).stream()
+                        .collect(Collectors.toMap(
+                                avatar -> avatar.getUser().getId(),
+                                Function.identity(),
+                                (first, ignored) -> first));
+
         page.getContent().forEach(dto -> {
-            dto.setAvatarUrl(getCurrentAvatar(dto.getUserId()));
+            UserAvatar avatar = avatarsByUserId.get(dto.getUserId());
+            dto.setAvatarUrl(avatar != null && avatar.getMedia() != null ? avatar.getMedia().getUrl() : null);
         });
 
         return page;
@@ -133,15 +149,20 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .orElse(null);
     }
 
+    private PublicProfileFragment getPublicFragment(Integer userId, UserProfile profile) {
+        return publicProfileCache.find(userId).orElseGet(() -> {
+            PublicProfileFragment fragment = new PublicProfileFragment(
+                    userId,
+                    profile != null ? profile.getFullName() : null,
+                    getCurrentAvatar(userId),
+                    getCurrentCover(userId));
+            publicProfileCache.store(fragment);
+            return fragment;
+        });
+    }
+
     private List<MediaDTO> getGallery(Integer userId) {
         List<Media> mediaList = mediaRepository.findAllByUploaderIdAndIsDeletedFalseOrderByUploadedAtDesc(userId);
-        System.out.println("====== DEBUG getGallery ======");
-        System.out.println("userId: " + userId);
-        System.out.println("Media count from DB: " + mediaList.size());
-        for (Media m : mediaList) {
-            System.out.println("  - Media ID: " + m.getId() + ", URL: " + m.getUrl() + ", Type: " + m.getType());
-        }
-        System.out.println("==============================");
         return mediaList.stream()
                 .map(this::mapMediaToDTO)
                 .collect(Collectors.toList());
@@ -206,6 +227,7 @@ public class UserProfileServiceImpl implements UserProfileService {
 
         profile.setUpdatedAt(Instant.now());
         userProfileRepository.save(profile);
+        publicProfileCache.invalidate(userId);
         return getUserProfile(userId, userId); // Trả về DTO mới nhất
     }
 }

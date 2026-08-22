@@ -1,6 +1,8 @@
 package org.example.connectcg_be.controller;
 
 import org.example.connectcg_be.dto.MediaUploadResponse;
+import org.example.connectcg_be.ratelimit.RateLimitPolicy;
+import org.example.connectcg_be.ratelimit.RateLimitService;
 import org.example.connectcg_be.security.UserPrincipal;
 import org.example.connectcg_be.service.MediaUploadService;
 import org.junit.jupiter.api.Test;
@@ -21,7 +23,8 @@ class MediaUploadControllerTest {
     @Test
     void returnsCreatedUploadContractForAuthenticatedPrincipal() {
         MediaUploadService service = mock(MediaUploadService.class);
-        MediaUploadController controller = new MediaUploadController(service);
+        RateLimitService rateLimitService = mock(RateLimitService.class);
+        MediaUploadController controller = new MediaUploadController(service, rateLimitService);
         MockMultipartFile file = new MockMultipartFile("file", "avatar.png", "image/png", new byte[] {1});
         UserPrincipal principal = new UserPrincipal(
                 42,
@@ -40,6 +43,7 @@ class MediaUploadControllerTest {
 
         assertEquals(HttpStatus.CREATED, response.getStatusCode());
         assertEquals(expected, response.getBody());
+        verify(rateLimitService).check(RateLimitPolicy.MEDIA_UPLOAD, "42");
         verify(service).upload(file, "avatar", 42);
     }
 }

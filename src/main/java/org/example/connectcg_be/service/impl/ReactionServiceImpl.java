@@ -19,9 +19,13 @@ import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class ReactionServiceImpl implements ReactionService {
+
+    private static final Set<String> VALID_REACTION_TYPES =
+            Set.of("LIKE", "LOVE", "HAHA", "WOW", "SAD", "ANGRY");
 
     @Autowired
     private ReactionRepository reactionRepository;
@@ -34,12 +38,20 @@ public class ReactionServiceImpl implements ReactionService {
     @Autowired
     private org.example.connectcg_be.repository.UserProfileRepository userProfileRepository;
     @Autowired
-    private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
+    private org.example.connectcg_be.service.PostAccessPolicy postAccessPolicy;
+    @Autowired
+    private org.example.connectcg_be.service.PostRealtimeService postRealtimeService;
 
     @Override
     @Transactional
     @Retryable(retryFor = CannotAcquireLockException.class, maxAttempts = 3, backoff = @Backoff(delay = 100))
     public void reactToPost(Integer postId, Integer userId, String type) {
+        if (type == null || !VALID_REACTION_TYPES.contains(type)) {
+            throw new IllegalArgumentException("Loại cảm xúc không hợp lệ");
+        }
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new RuntimeException("Bài viết không tồn tại"));
+        postAccessPolicy.requireCanView(post, userId);
         // 1. Tạo Composite Key
         ReactionId id = new ReactionId(userId, postId);
         // 2. Kiểm tra xem đã tồn tại chưa
@@ -52,7 +64,6 @@ public class ReactionServiceImpl implements ReactionService {
         } else {
             // Tạo mới
             // Lấy Post và User proxy (getReference để tối ưu query)
-            Post post = postRepository.getReferenceById(postId);
             User user = userRepository.getReferenceById(userId);
             Reaction reaction = new Reaction();
             reaction.setId(id);
@@ -61,9 +72,6 @@ public class ReactionServiceImpl implements ReactionService {
             reaction.setType(type);
 
             reactionRepository.save(reaction);
-
-            // Cộng reactCount trong Post - atomic update to prevent deadlock
-            postRepository.incrementReactCount(postId);
 
             // Gửi thông báo cho chủ bài viết
             if (!userId.equals(post.getAuthor().getId())) {
@@ -85,31 +93,27 @@ public class ReactionServiceImpl implements ReactionService {
         }
 
         // Broadcast realtime
-        Post updatedPost = postRepository.findById(postId).orElse(null);
-        int newCount = updatedPost != null && updatedPost.getReactCount() != null
-                ? updatedPost.getReactCount()
-                : 0;
+        int newCount = Math.toIntExact(reactionRepository.countByPostId(postId));
+        postRepository.updateReactCount(postId, newCount);
         ReactionEventDTO event = new ReactionEventDTO("REACTED", postId, userId, type, newCount);
-        messagingTemplate.convertAndSend("/topic/reactions", event);
+        postRealtimeService.publishReactionEvent(post, event);
     }
 
     @Override
     @Transactional
     public void unreactToPost(Integer postId, Integer userId) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new RuntimeException("Bài viết không tồn tại"));
+        postAccessPolicy.requireCanView(post, userId);
         ReactionId id = new ReactionId(userId, postId);
         if (reactionRepository.existsById(id)) {
             reactionRepository.deleteById(id);
 
-            // Trừ reactCount trong Post - atomic update to prevent deadlock
-            postRepository.decrementReactCount(postId);
-
             // Broadcast realtime
-            Post updatedPost = postRepository.findById(postId).orElse(null);
-            int newCount = updatedPost != null && updatedPost.getReactCount() != null
-                    ? updatedPost.getReactCount()
-                    : 0;
+            int newCount = Math.toIntExact(reactionRepository.countByPostId(postId));
+            postRepository.updateReactCount(postId, newCount);
             ReactionEventDTO event = new ReactionEventDTO("UNREACTED", postId, userId, null, newCount);
-            messagingTemplate.convertAndSend("/topic/reactions", event);
+            postRealtimeService.publishReactionEvent(post, event);
         }
     }
 }

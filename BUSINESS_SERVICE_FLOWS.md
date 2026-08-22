@@ -1,6 +1,6 @@
 # TÀI LIỆU LUỒNG NGHIỆP VỤ CÁC BUSINESS SERVICE (BUSINESS SERVICE FLOWS)
 **Dự án:** Mạng xã hội Connect (ConnectCG)  
-**Công nghệ:** Spring Boot 3, Spring Security (JWT & OAuth2), Spring Data JPA, WebSocket (STOMP), Gemini AI Moderation, Firebase Realtime Database, MySQL/PostgreSQL.
+**Công nghệ:** Spring Boot 3, Spring Security (JWT & OAuth2), Spring Data JPA, WebSocket (STOMP), Gemini AI Moderation, Firebase Realtime Database, PostgreSQL 16.
 
 ---
 
@@ -64,7 +64,7 @@ graph TD
     end
 
     subgraph Infrastructure ["Data & Messaging Infrastructure"]
-        RDBMS[(Database MySQL / PostgreSQL)]
+        RDBMS[(PostgreSQL 16)]
         Firebase[(Firebase Realtime Database)]
         GeminiAPI["Google Gemini 1.5 Flash API"]
         SMTPMail["SMTP Mail Server"]

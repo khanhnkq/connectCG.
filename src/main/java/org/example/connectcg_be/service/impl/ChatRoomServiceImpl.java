@@ -6,14 +6,18 @@ import org.example.connectcg_be.dto.ReadReceiptDTO;
 import org.example.connectcg_be.entity.*;
 import org.example.connectcg_be.repository.*;
 import org.example.connectcg_be.service.ChatRoomService;
+import org.example.connectcg_be.realtime.RealtimeEventPublisher;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Collection;
+import java.util.function.Function;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -39,7 +43,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
     private org.example.connectcg_be.service.MediaService mediaService;
 
     @Autowired
-    private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
+    private RealtimeEventPublisher realtimeEventPublisher;
 
     @Override
     @Transactional
@@ -96,14 +100,12 @@ public class ChatRoomServiceImpl implements ChatRoomService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<ChatRoomDTO> getUserChatRooms(Integer userId) {
         List<ChatRoom> rooms = chatRoomMemberRepository.findByUser_IdOrderByLastMessageAtDesc(userId).stream()
                 .map(ChatRoomMember::getChatRoom)
                 .collect(Collectors.toList());
-
-        return rooms.stream()
-                .map(room -> convertToDTO(room, userId))
-                .collect(Collectors.toList());
+        return convertToDTOs(rooms, userId);
     }
 
     @Override
@@ -132,7 +134,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
                     unreadCount = 1;
                 }
 
-                messagingTemplate.convertAndSendToUser(
+                realtimeEventPublisher.sendToUser(
                         member.getUser().getUsername(),
                         "/queue/chat",
                         Map.of(
@@ -155,8 +157,8 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         ChatRoomMember membership = chatRoomMemberRepository.findByChatRoom_IdAndUser_Id(roomId, currentUser.getId())
                 .orElseThrow(() -> new RuntimeException("You are not a member of this room"));
 
-        if (!"ADMIN".equals(membership.getRole()) && !"GROUP".equals(room.getType())) {
-            throw new RuntimeException("Only admins can rename group chats");
+        if (!"GROUP".equals(room.getType()) || !"ADMIN".equals(membership.getRole())) {
+            throw new AccessDeniedException("Only admins can rename group chats");
         }
 
         room.setName(newName);
@@ -165,7 +167,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         // Broadcast CHAT_UPDATE to all members
         List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_Id(roomId);
         for (ChatRoomMember m : members) {
-            messagingTemplate.convertAndSendToUser(
+            realtimeEventPublisher.sendToUser(
                     m.getUser().getUsername(),
                     "/queue/chat",
                     Map.of(
@@ -186,8 +188,8 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         ChatRoomMember membership = chatRoomMemberRepository.findByChatRoom_IdAndUser_Id(roomId, currentUser.getId())
                 .orElseThrow(() -> new RuntimeException("You are not a member of this room"));
 
-        if (!"ADMIN".equals(membership.getRole()) && !"GROUP".equals(room.getType())) {
-            throw new RuntimeException("Only admins can change group avatar");
+        if (!"GROUP".equals(room.getType()) || !"ADMIN".equals(membership.getRole())) {
+            throw new AccessDeniedException("Only admins can change group avatar");
         }
 
         mediaService.resolveOwnedMedia(avatarUrl, currentUser.getId());
@@ -197,7 +199,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         // Broadcast CHAT_UPDATE to all members
         List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_Id(roomId);
         for (ChatRoomMember m : members) {
-            messagingTemplate.convertAndSendToUser(
+            realtimeEventPublisher.sendToUser(
                     m.getUser().getUsername(),
                     "/queue/chat",
                     Map.of(
@@ -247,7 +249,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         List<ChatRoomMember> updatedMembers = chatRoomMemberRepository.findByChatRoom_Id(roomId);
         for (ChatRoomMember m : updatedMembers) {
             ChatRoomDTO roomDto = convertToDTO(room, m.getUser().getId());
-            messagingTemplate.convertAndSendToUser(
+            realtimeEventPublisher.sendToUser(
                     m.getUser().getUsername(),
                     "/queue/chat",
                     Map.of(
@@ -261,22 +263,61 @@ public class ChatRoomServiceImpl implements ChatRoomService {
 
     @Override
     public ChatRoomDTO convertToDTO(ChatRoom room, Integer currentUserId) {
+        List<ChatRoomMember> roomMembers = chatRoomMemberRepository.findByChatRoom_Id(room.getId());
+        MemberData memberData = loadMemberData(roomMembers);
+        return convertToDTO(room, currentUserId, roomMembers, memberData);
+    }
+
+    private List<ChatRoomDTO> convertToDTOs(List<ChatRoom> rooms, Integer currentUserId) {
+        if (rooms.isEmpty()) {
+            return List.of();
+        }
+        List<Long> roomIds = rooms.stream().map(ChatRoom::getId).toList();
+        List<ChatRoomMember> allMembers = chatRoomMemberRepository.findByChatRoom_IdIn(roomIds);
+        Map<Long, List<ChatRoomMember>> membersByRoom = allMembers.stream()
+                .collect(Collectors.groupingBy(member -> member.getChatRoom().getId()));
+        MemberData memberData = loadMemberData(allMembers);
+        return rooms.stream()
+                .map(room -> convertToDTO(
+                        room,
+                        currentUserId,
+                        membersByRoom.getOrDefault(room.getId(), List.of()),
+                        memberData))
+                .toList();
+    }
+
+    private MemberData loadMemberData(Collection<ChatRoomMember> members) {
+        List<Integer> userIds = members.stream()
+                .map(member -> member.getUser().getId())
+                .distinct()
+                .toList();
+        if (userIds.isEmpty()) {
+            return new MemberData(Map.of(), Map.of());
+        }
+        Map<Integer, UserProfile> profiles = userProfileRepository.findAllByUserIdIn(userIds).stream()
+                .collect(Collectors.toMap(profile -> profile.getUser().getId(), Function.identity()));
+        Map<Integer, UserAvatar> avatars = userAvatarRepository.findCurrentByUserIds(userIds).stream()
+                .collect(Collectors.toMap(avatar -> avatar.getUser().getId(), Function.identity()));
+        return new MemberData(profiles, avatars);
+    }
+
+    private ChatRoomDTO convertToDTO(
+            ChatRoom room,
+            Integer currentUserId,
+            List<ChatRoomMember> roomMembers,
+            MemberData memberData) {
         String name = room.getName();
         String avatarUrl = room.getAvatarUrl();
         Integer otherParticipantId = null;
 
-        // Fetch all members to populate 'members' list and determine 1-1 info
-        List<ChatRoomMember> roomMembers = chatRoomMemberRepository.findByChatRoom_Id(room.getId());
-
         List<ChatMemberDTO> memberDTOs = roomMembers.stream().map(rm -> {
             Integer uid = rm.getUser().getId();
             String uName = rm.getUser().getUsername();
-            String fName = userProfileRepository.findByUserId(uid)
-                    .map(UserProfile::getFullName)
-                    .orElse(uName);
+            UserProfile profile = memberData.profiles().get(uid);
+            String fName = profile != null ? profile.getFullName() : uName;
 
             String aUrl = null;
-            UserAvatar avatar = userAvatarRepository.findByUserIdAndIsCurrentTrue(uid);
+            UserAvatar avatar = memberData.avatars().get(uid);
             if (avatar != null && avatar.getMedia() != null) {
                 aUrl = avatar.getMedia().getUrl();
             }
@@ -315,7 +356,9 @@ public class ChatRoomServiceImpl implements ChatRoomService {
                 .build();
 
         // Calculate unread count (simplified: 1 if unread, 0 if read)
-        ChatRoomMember currentMember = chatRoomMemberRepository.findByChatRoom_IdAndUser_Id(room.getId(), currentUserId)
+        ChatRoomMember currentMember = roomMembers.stream()
+                .filter(member -> member.getUser().getId().equals(currentUserId))
+                .findFirst()
                 .orElse(null);
         if (currentMember != null) {
             dto.setClientClearedAt(currentMember.getClientClearedAt());
@@ -344,6 +387,11 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         return dto;
     }
 
+    private record MemberData(
+            Map<Integer, UserProfile> profiles,
+            Map<Integer, UserAvatar> avatars) {
+    }
+
     @Override
     @Transactional
     public void markAsRead(Long roomId, User currentUser) {
@@ -362,13 +410,13 @@ public class ChatRoomServiceImpl implements ChatRoomService {
                 .lastReadAt(now)
                 .build();
 
-        messagingTemplate.convertAndSend(
+        realtimeEventPublisher.sendToTopic(
                 "/topic/chat/" + receipt.getFirebaseRoomKey() + "/seen",
                 receipt);
 
         // Also notify the current user to update their sidebar (unreadCount = 0)
         ChatRoomDTO roomDto = convertToDTO(member.getChatRoom(), currentUser.getId());
-        messagingTemplate.convertAndSendToUser(
+        realtimeEventPublisher.sendToUser(
                 currentUser.getUsername(),
                 "/queue/chat",
                 Map.of(
@@ -408,7 +456,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         // Broadcast CHAT_REMOVE to everyone before deleting
         List<ChatRoomMember> membersToDelete = chatRoomMemberRepository.findByChatRoom_Id(roomId);
         for (ChatRoomMember m : membersToDelete) {
-            messagingTemplate.convertAndSendToUser(
+            realtimeEventPublisher.sendToUser(
                     m.getUser().getUsername(),
                     "/queue/chat",
                     Map.of(
@@ -458,7 +506,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         // Notify the kicked user to remove sidebar item
         User targetUser = userRepository.findById(userIdToRemove).orElse(null);
         if (targetUser != null) {
-            messagingTemplate.convertAndSendToUser(
+            realtimeEventPublisher.sendToUser(
                     targetUser.getUsername(),
                     "/queue/chat",
                     Map.of(
@@ -471,7 +519,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         List<ChatRoomMember> remainingMembers = chatRoomMemberRepository.findByChatRoom_Id(roomId);
         for (ChatRoomMember m : remainingMembers) {
             ChatRoomDTO roomDto = convertToDTO(room, m.getUser().getId());
-            messagingTemplate.convertAndSendToUser(
+            realtimeEventPublisher.sendToUser(
                     m.getUser().getUsername(),
                     "/queue/chat",
                     Map.of(
@@ -510,7 +558,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
         chatRoomMemberRepository.delete(member);
 
         // Notify the leaving user to remove from sidebar
-        messagingTemplate.convertAndSendToUser(
+        realtimeEventPublisher.sendToUser(
                 currentUser.getUsername(),
                 "/queue/chat",
                 Map.of(
@@ -526,7 +574,7 @@ public class ChatRoomServiceImpl implements ChatRoomService {
             // Notify remaining members that someone left
             for (ChatRoomMember m : remaining) {
                 ChatRoomDTO roomDto = convertToDTO(room, m.getUser().getId());
-                messagingTemplate.convertAndSendToUser(
+                realtimeEventPublisher.sendToUser(
                         m.getUser().getUsername(),
                         "/queue/chat",
                         Map.of(

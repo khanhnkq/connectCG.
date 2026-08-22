@@ -1,13 +1,13 @@
 package org.example.connectcg_be.service.impl;
 
 import org.example.connectcg_be.dto.CreatProfileRequest;
-import org.example.connectcg_be.dto.JwtResponse;
 import org.example.connectcg_be.dto.RegisterRequest;
 import org.example.connectcg_be.entity.*;
 import org.example.connectcg_be.repository.*;
 import org.example.connectcg_be.security.JwtTokenProvider;
 import org.example.connectcg_be.service.AuthService;
 import org.example.connectcg_be.service.EmailService;
+import org.example.connectcg_be.service.RefreshTokenService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -46,6 +46,12 @@ public class AuthServiceImpl implements AuthService {
 
     @Autowired
     private VerificationTokenRepository verificationTokenRepository;
+
+    @Autowired
+    private org.example.connectcg_be.cache.PublicProfileCache publicProfileCache;
+
+    @Autowired
+    private RefreshTokenService refreshTokenService;
 
     @Override
     @Transactional
@@ -162,6 +168,7 @@ public class AuthServiceImpl implements AuthService {
             avatar.setIsCurrent(true);
             userAvatarRepository.save(avatar);
         }
+        publicProfileCache.invalidate(user.getId());
         return savedProfile;
 
     }
@@ -222,6 +229,8 @@ public class AuthServiceImpl implements AuthService {
         User user = resetToken.getUser();
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         userRepository.save(user);
+
+        refreshTokenService.revokeAllForUser(user.getId(), "PASSWORD_RESET", true);
 
         tokenRepository.delete(resetToken); // Mật khẩu đổi xong thì xóa token
     }

@@ -9,7 +9,7 @@ import org.example.connectcg_be.repository.NotificationRepository;
 import org.example.connectcg_be.repository.UserAvatarRepository;
 import org.example.connectcg_be.repository.UserProfileRepository;
 import org.example.connectcg_be.service.NotificationService;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.example.connectcg_be.realtime.RealtimeEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +24,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final NotificationRepository notificationRepository;
     private final UserAvatarRepository userAvatarRepository;
     private final UserProfileRepository userProfileRepository;
-    private final SimpMessagingTemplate messagingTemplate; // 1. Inject cái này
+    private final RealtimeEventPublisher realtimeEventPublisher;
 
     @Override
     @Transactional(readOnly = true)
@@ -94,7 +94,7 @@ public class NotificationServiceImpl implements NotificationService {
         dto.setActorName(actorName);
         dto.setActorAvatar(actorAvatarUrl);
 
-        messagingTemplate.convertAndSendToUser(
+        realtimeEventPublisher.sendToUser(
                 receiver.getUsername(),
                 "/queue/notifications",
                 dto);
@@ -109,7 +109,7 @@ public class NotificationServiceImpl implements NotificationService {
         // Convert to DTO with actor info for frontend
         TungNotificationDTO dto = mapToDTO(saved);
 
-        messagingTemplate.convertAndSendToUser(
+        realtimeEventPublisher.sendToUser(
                 saved.getUser().getUsername(),
                 "/queue/notifications",
                 dto);

@@ -1,5 +1,6 @@
 package org.example.connectcg_be.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.connectcg_be.dto.CommentDTO;
 import org.example.connectcg_be.dto.CreateCommentRequest;
@@ -10,11 +11,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/posts/{postId}/comments")
 @RequiredArgsConstructor
@@ -23,15 +24,18 @@ public class CommentController {
     private CommentService commentService;
 
     @GetMapping
-    public ResponseEntity<List<CommentDTO>> getComments(@PathVariable("postId") Integer postId) {
-        return ResponseEntity.ok(commentService.getCommentsByPostId(postId));
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<CommentDTO>> getComments(
+            @PathVariable("postId") Integer postId,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        return ResponseEntity.ok(commentService.getCommentsByPostId(postId, currentUser.getId()));
     }
 
     @PostMapping
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<CommentDTO> createComment(
             @PathVariable Integer postId,
-            @RequestBody CreateCommentRequest request,
+            @Valid @RequestBody CreateCommentRequest request,
             Authentication authentication) {
 
         UserPrincipal user = (UserPrincipal) authentication.getPrincipal();
@@ -48,7 +52,7 @@ public class CommentController {
             Authentication authentication) {
 
         UserPrincipal user = (UserPrincipal) authentication.getPrincipal();
-        commentService.deleteComment(commentId, user.getId());
+        commentService.deleteComment(postId, commentId, user.getId());
         return ResponseEntity.ok().build();
     }
 

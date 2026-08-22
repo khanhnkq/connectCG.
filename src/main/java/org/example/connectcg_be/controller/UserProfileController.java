@@ -13,7 +13,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/users")
 @RequiredArgsConstructor

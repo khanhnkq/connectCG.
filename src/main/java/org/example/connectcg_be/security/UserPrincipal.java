@@ -25,10 +25,17 @@ public class UserPrincipal implements UserDetails {
     private String password;
     private boolean isEnabled;
     private Collection<? extends GrantedAuthority> authorities;
+    private int authVersion;
 
     public UserPrincipal(Integer id, String username, String email, String password, boolean isEnabled,
             boolean isLocked, boolean isDeleted,
             Collection<? extends GrantedAuthority> authorities) {
+        this(id, username, email, password, isEnabled, isLocked, isDeleted, authorities, 0);
+    }
+
+    public UserPrincipal(Integer id, String username, String email, String password, boolean isEnabled,
+            boolean isLocked, boolean isDeleted,
+            Collection<? extends GrantedAuthority> authorities, int authVersion) {
         this.id = id;
         this.username = username;
         this.email = email;
@@ -37,6 +44,7 @@ public class UserPrincipal implements UserDetails {
         this.isLocked = isLocked;
         this.isDeleted = isDeleted;
         this.authorities = authorities;
+        this.authVersion = authVersion;
     }
 
     // Hàm build từ Entity User sang UserPrincipal
@@ -61,7 +69,8 @@ public class UserPrincipal implements UserDetails {
                 Boolean.TRUE.equals(user.getIsEnabled()),
                 actuallyLocked,
                 Boolean.TRUE.equals(user.getIsDeleted()),
-                authorities);
+                authorities,
+                user.getAuthVersion() == null ? 0 : user.getAuthVersion());
     }
 
     @Override

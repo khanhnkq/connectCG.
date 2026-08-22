@@ -4,26 +4,44 @@ import org.springframework.stereotype.Service;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class OnlineUserService {
 
-    // Using a concurrent set to store online user IDs
-    private final Set<Integer> onlineUsers = ConcurrentHashMap.newKeySet();
+    private final ConcurrentMap<Integer, Set<String>> sessionsByUser = new ConcurrentHashMap<>();
 
-    public void addUser(Integer userId) {
-        onlineUsers.add(userId);
+    public boolean connect(Integer userId, String sessionId) {
+        AtomicBoolean becameOnline = new AtomicBoolean(false);
+        sessionsByUser.compute(userId, (id, sessions) -> {
+            Set<String> currentSessions = sessions != null ? sessions : ConcurrentHashMap.newKeySet();
+            if (currentSessions.add(sessionId) && currentSessions.size() == 1) {
+                becameOnline.set(true);
+            }
+            return currentSessions;
+        });
+        return becameOnline.get();
     }
 
-    public void removeUser(Integer userId) {
-        onlineUsers.remove(userId);
+    public boolean disconnect(Integer userId, String sessionId) {
+        AtomicBoolean becameOffline = new AtomicBoolean(false);
+        sessionsByUser.computeIfPresent(userId, (id, sessions) -> {
+            sessions.remove(sessionId);
+            if (sessions.isEmpty()) {
+                becameOffline.set(true);
+                return null;
+            }
+            return sessions;
+        });
+        return becameOffline.get();
     }
 
     public boolean isUserOnline(Integer userId) {
-        return onlineUsers.contains(userId);
+        return sessionsByUser.containsKey(userId);
     }
 
     public Set<Integer> getOnlineUsers() {
-        return onlineUsers;
+        return Set.copyOf(sessionsByUser.keySet());
     }
 }

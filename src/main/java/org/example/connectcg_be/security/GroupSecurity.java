@@ -33,7 +33,7 @@ public class GroupSecurity {
             return false;
 
         // Check if user is the Owner first (from Group entity)
-        Optional<Group> group = groupRepository.findById(groupId);
+        Optional<Group> group = groupRepository.findByIdAndIsDeletedFalse(groupId);
         if (group.isPresent() && userPrincipal.getId().equals(group.get().getOwner().getId())) {
             return true;
         }
@@ -44,7 +44,9 @@ public class GroupSecurity {
         memberId.setUserId(userPrincipal.getId());
 
         Optional<GroupMember> member = groupMemberRepository.findById(memberId);
-        return member.isPresent() && "ADMIN".equals(member.get().getRole());
+        return member.isPresent()
+                && "ACCEPTED".equals(member.get().getStatus())
+                && "ADMIN".equals(member.get().getRole());
     }
 
     public boolean isGroupMember(Integer groupId) {
@@ -53,7 +55,7 @@ public class GroupSecurity {
             return false;
 
         // Owner is always considered a member
-        Optional<Group> group = groupRepository.findById(groupId);
+        Optional<Group> group = groupRepository.findByIdAndIsDeletedFalse(groupId);
         if (group.isPresent() && userPrincipal.getId().equals(group.get().getOwner().getId())) {
             return true;
         }
@@ -80,7 +82,7 @@ public class GroupSecurity {
     }
 
     public boolean isPublicGroup(Integer groupId) {
-        return groupRepository.findById(groupId)
+        return groupRepository.findByIdAndIsDeletedFalse(groupId)
                 .map(g -> "PUBLIC".equals(g.getPrivacy()))
                 .orElse(false);
     }

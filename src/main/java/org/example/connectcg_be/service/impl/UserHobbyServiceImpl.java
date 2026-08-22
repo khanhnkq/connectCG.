@@ -26,6 +26,9 @@ public class UserHobbyServiceImpl implements UserHobbyService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private org.example.connectcg_be.cache.PublicProfileCache publicProfileCache;
+
     @Override
     @Transactional
     public void updateUserHobbies(Integer userId, List<Integer> hobbyIds) {
@@ -56,5 +59,6 @@ public class UserHobbyServiceImpl implements UserHobbyService {
                 userHobbyRepository.save(userHobby);
             }
         }
+        publicProfileCache.invalidate(userId);
     }
 }

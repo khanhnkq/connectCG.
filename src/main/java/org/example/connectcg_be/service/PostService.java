@@ -25,17 +25,23 @@ public interface PostService {
 
         org.springframework.data.domain.Page<GroupPostDTO> getNewsfeedPosts(Integer userId, int page, int size);
 
-        List<GroupPostDTO> getPostsByUserId(Integer userid);
+        List<GroupPostDTO> getPostsByUserId(Integer userId, Integer viewerId);
+
+        int countPostsVisibleToUser(Integer userId, Integer viewerId);
 
         void approvePost(Integer postId, Integer adminId);
 
         void rejectPost(Integer postId, Integer adminId);
 
+        void approveGroupPost(Integer groupId, Integer postId, Integer adminId);
+
+        void rejectGroupPost(Integer groupId, Integer postId, Integer adminId);
+
         org.example.connectcg_be.entity.Post createPost(org.example.connectcg_be.dto.CreatePostRequest request,
-                        boolean skipAiCheck, Integer userId);
+                        Integer userId);
 
         GroupPostDTO createPostAndReturnDTO(org.example.connectcg_be.dto.CreatePostRequest request,
-                        boolean skipAiCheck, Integer userId);
+                        Integer userId);
 
         @Transactional
         void deletePost(Integer postId, Integer userId);

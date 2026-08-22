@@ -11,7 +11,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/api/reports")
-@CrossOrigin("*")
 public class ReportController {
 
     private final ReportService reportService;

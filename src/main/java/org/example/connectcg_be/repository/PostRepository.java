@@ -2,6 +2,7 @@ package org.example.connectcg_be.repository;
 
 import org.example.connectcg_be.entity.Post;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,22 +13,19 @@ import java.util.List;
 @Repository
 public interface PostRepository extends JpaRepository<Post, Integer> {
 
-  // Atomic update methods to prevent deadlocks
   @Modifying
-  @Query("UPDATE Post p SET p.commentCount = p.commentCount + 1 WHERE p.id = :postId")
-  void incrementCommentCount(@Param("postId") Integer postId);
+  @Query("UPDATE Post p SET p.commentCount = :count WHERE p.id = :postId")
+  void updateCommentCount(@Param("postId") Integer postId, @Param("count") Integer count);
 
   @Modifying
-  @Query("UPDATE Post p SET p.commentCount = p.commentCount - 1 WHERE p.id = :postId AND p.commentCount > 0")
-  void decrementCommentCount(@Param("postId") Integer postId);
+  @Query("UPDATE Post p SET p.reactCount = :count WHERE p.id = :postId")
+  void updateReactCount(@Param("postId") Integer postId, @Param("count") Integer count);
 
   @Modifying
-  @Query("UPDATE Post p SET p.reactCount = p.reactCount + 1 WHERE p.id = :postId")
-  void incrementReactCount(@Param("postId") Integer postId);
+  @Query("UPDATE Post p SET p.shareCount = :count WHERE p.id = :postId")
+  void updateShareCount(@Param("postId") Integer postId, @Param("count") Integer count);
 
-  @Modifying
-  @Query("UPDATE Post p SET p.reactCount = p.reactCount - 1 WHERE p.id = :postId AND p.reactCount > 0")
-  void decrementReactCount(@Param("postId") Integer postId);
+  long countByOriginalPostIdAndIsDeletedFalse(Integer originalPostId);
 
   Integer countByAuthorIdAndIsDeletedFalse(Integer authorId);
 
@@ -35,12 +33,16 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
 
   long countByGroupIdAndStatus(Integer groupId, String status);
 
+  @EntityGraph(attributePaths = { "author", "group", "approvedBy", "originalPost", "originalPost.author",
+      "originalPost.group", "originalPost.approvedBy" })
   List<Post> findAllByAuthorIdAndStatusAndIsDeletedFalseOrderByCreatedAtDesc(Integer authorId, String status);
 
   List<Post> findAllByAuthorIdAndGroupIdAndStatusAndIsDeletedFalse(Integer authorId, Integer groupId, String status);
 
   List<Post> findAllByAuthorIdAndStatusAndIsDeletedFalse(Integer authorId, String status);
 
+  @EntityGraph(attributePaths = { "author", "group", "approvedBy", "originalPost", "originalPost.author",
+      "originalPost.group", "originalPost.approvedBy" })
   java.util.List<Post> findAllByGroupIdAndStatusAndIsDeletedFalseOrderByIsPinnedDescPinnedAtDescCreatedAtDesc(
       Integer groupId, String status);
 
@@ -48,15 +50,21 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
 
   java.util.List<Post> findAllByGroupIdIsNullAndStatusAndIsDeletedFalseOrderByCreatedAtDesc(String status);
 
+  @EntityGraph(attributePaths = { "author", "group", "approvedBy", "originalPost", "originalPost.author",
+      "originalPost.group", "originalPost.approvedBy" })
   org.springframework.data.domain.Page<Post> findAllByGroupIdIsNullAndStatusAndIsDeletedFalseOrderByCreatedAtDesc(
       String status, org.springframework.data.domain.Pageable pageable);
 
   java.util.List<Post> findAllByGroupIdIsNullAndStatusAndAiStatusAndIsDeletedFalseOrderByCreatedAtDesc(String status,
       String aiStatus);
 
+  @EntityGraph(attributePaths = { "author", "group", "approvedBy", "originalPost", "originalPost.author",
+      "originalPost.group", "originalPost.approvedBy" })
   org.springframework.data.domain.Page<Post> findAllByGroupIdIsNullAndStatusAndAiStatusAndIsDeletedFalseOrderByCreatedAtDesc(
       String status, String aiStatus, org.springframework.data.domain.Pageable pageable);
 
+  @EntityGraph(attributePaths = { "author", "group", "approvedBy", "originalPost", "originalPost.author",
+      "originalPost.group", "originalPost.approvedBy" })
   @Query("""
         select p from Post p
         where p.isDeleted = false
@@ -76,6 +84,8 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
       @Param("friendIds") List<Integer> friendIds,
       @Param("groupIds") List<Integer> groupIds);
 
+  @EntityGraph(attributePaths = { "author", "group", "approvedBy", "originalPost", "originalPost.author",
+      "originalPost.group", "originalPost.approvedBy" })
   @Query(value = """
         select p from Post p
         where p.isDeleted = false

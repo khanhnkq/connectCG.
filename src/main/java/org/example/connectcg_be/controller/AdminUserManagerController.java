@@ -5,7 +5,6 @@ import org.example.connectcg_be.dto.UserProfileDTO;
 import org.example.connectcg_be.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,7 +18,6 @@ import org.example.connectcg_be.security.UserPrincipal;
 @RestController
 @RequestMapping("/api/admin-user")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class AdminUserManagerController {
 
     private final UserService userService;

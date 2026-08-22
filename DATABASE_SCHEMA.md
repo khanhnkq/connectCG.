@@ -1,7 +1,7 @@
 # TÀI LIỆU CƠ SỞ DỮ LIỆU (DATABASE SCHEMA & ERD)
 **Dự án:** Mạng xã hội Connect (ConnectCG)  
-**Hệ quản trị CSDL:** MySQL / PostgreSQL (Quản lý qua Flyway Migration)  
-**Charset/Collation:** `utf8mb4` / `utf8mb4_unicode_ci`
+**Hệ quản trị CSDL:** PostgreSQL 16 (quản lý qua Flyway Migration)
+**Encoding:** UTF-8
 
 ---
 

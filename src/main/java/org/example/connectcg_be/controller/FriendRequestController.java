@@ -15,7 +15,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 @RestController
 @RequestMapping("/api/v1/friend-requests")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class FriendRequestController {
 
     private final FriendRequestService friendRequestService;

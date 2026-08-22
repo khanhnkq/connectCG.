@@ -14,7 +14,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/notifications")
 @RequiredArgsConstructor
-@CrossOrigin("*")
 public class TungNotificationController {
 
     private final NotificationService notificationService;

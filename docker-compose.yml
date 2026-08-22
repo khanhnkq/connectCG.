@@ -1,31 +1,26 @@
 services:
   # =========================================================================
-  # 1. Cơ sở dữ liệu MySQL 8.0
+  # 1. Cơ sở dữ liệu PostgreSQL 16
   # =========================================================================
-  mysql:
-    image: mysql:8.0
-    container_name: connect_mysql
+  postgres:
+    image: postgres:16-alpine
+    container_name: connect_postgres
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
-      MYSQL_DATABASE: ${DB_NAME:-connect_db}
-      MYSQL_USER: ${DB_USER:-connect_user}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-connect_password}
+      POSTGRES_DB: ${DB_NAME:-connect_db}
+      POSTGRES_USER: ${DB_USER:-connect_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-connect_password}
       TZ: Asia/Ho_Chi_Minh
     ports:
-      - "${DB_PORT:-3306}:3306"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - mysql_data:/var/lib/mysql
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      - --default-authentication-plugin=mysql_native_password
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-rootpassword}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 10s
     networks:
       - connect-network
 
@@ -46,7 +41,32 @@ services:
       - connect-network
 
   # =========================================================================
-  # 3. Backend Spring Boot (Java 17 / Flyway / WebSocket / Gemini AI)
+  # 3. Redis (rate limit, cache và access-token revocation)
+  # =========================================================================
+  redis:
+    image: redis:7.4-alpine
+    container_name: connect_redis
+    restart: unless-stopped
+    mem_limit: 128m
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-connect_redis_password}
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$${REDIS_PASSWORD}" --maxmemory 96mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - connect-network
+
+  # =========================================================================
+  # 4. Backend Spring Boot (Java 17 / Flyway / WebSocket / Gemini AI)
   # =========================================================================
   backend:
     build:
@@ -56,20 +76,29 @@ services:
     container_name: connect_backend
     restart: unless-stopped
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       mail:
         condition: service_started
+      redis:
+        condition: service_healthy
     ports:
       - "${PORT:-8080}:8080"
     environment:
       PORT: 8080
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
-      DB_URL: jdbc:mysql://mysql:3306/${DB_NAME:-connect_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh&createDatabaseIfNotExist=true
+      WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-${FRONTEND_URL:-http://localhost:5173}}
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-connect_db}
       DB_USERNAME: ${DB_USER:-connect_user}
       DB_PASSWORD: ${DB_PASSWORD:-connect_password}
+      SPRING_FLYWAY_LOCATIONS: classpath:db/postgresql,classpath:db/postgresql-dev
       JWT_SECRET: ${JWT_SECRET:-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
-      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-900000}
+      REFRESH_TOKEN_LIFETIME: ${REFRESH_TOKEN_LIFETIME:-30d}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      AUTH_COOKIE_SAME_SITE: ${AUTH_COOKIE_SAME_SITE:-Lax}
+      DEMO_ACCOUNTS_ENABLED: ${DEMO_ACCOUNTS_ENABLED:-false}
+      DEMO_ACCOUNTS_PASSWORD: ${DEMO_ACCOUNTS_PASSWORD:-}
       MAIL_HOST: ${MAIL_HOST:-mail}
       MAIL_PORT: ${MAIL_PORT:-1025}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
@@ -81,6 +110,14 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
       GEMINI_API_URL: ${GEMINI_API_URL:-https://generativelanguage.googleapis.com/v1beta/models}
+      GEMINI_PROMPT_VERSION: ${GEMINI_PROMPT_VERSION:-v1}
+      AI_MODERATION_CACHE_ENABLED: ${AI_MODERATION_CACHE_ENABLED:-true}
+      AI_MODERATION_SAFE_TTL: ${AI_MODERATION_SAFE_TTL:-24h}
+      AI_MODERATION_TOXIC_TTL: ${AI_MODERATION_TOXIC_TTL:-7d}
+      HOBBY_CACHE_ENABLED: ${HOBBY_CACHE_ENABLED:-true}
+      HOBBY_CACHE_TTL: ${HOBBY_CACHE_TTL:-6h}
+      PUBLIC_PROFILE_CACHE_ENABLED: ${PUBLIC_PROFILE_CACHE_ENABLED:-true}
+      PUBLIC_PROFILE_CACHE_TTL: ${PUBLIC_PROFILE_CACHE_TTL:-5m}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       SITE_URL: ${SITE_URL:-http://localhost:5173}
       SITE_NAME: ${SITE_NAME:-ConnectCG}
@@ -88,27 +125,13 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-dummy-google-client-secret}
       FACEBOOK_CLIENT_ID: ${FACEBOOK_CLIENT_ID:-dummy-facebook-client-id}
       FACEBOOK_CLIENT_SECRET: ${FACEBOOK_CLIENT_SECRET:-dummy-facebook-client-secret}
-    networks:
-      - connect-network
-
-  # =========================================================================
-  # 4. phpMyAdmin (Giao diện Web xem và quản lý Database)
-  # =========================================================================
-  phpmyadmin:
-    image: phpmyadmin:latest
-    container_name: connect_phpmyadmin
-    restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
-    environment:
-      PMA_HOST: mysql
-      PMA_PORT: 3306
-      PMA_USER: ${DB_USER:-connect_user}
-      PMA_PASSWORD: ${DB_PASSWORD:-connect_password}
-      UPLOAD_LIMIT: 64M
-    ports:
-      - "${PMA_PORT:-8081}:80"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-connect_redis_password}
+      REDIS_CONNECT_TIMEOUT: ${REDIS_CONNECT_TIMEOUT:-500ms}
+      REDIS_COMMAND_TIMEOUT: ${REDIS_COMMAND_TIMEOUT:-500ms}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      APP_ENV: ${APP_ENV:-local}
     networks:
       - connect-network
 
@@ -116,7 +139,9 @@ services:
 # Volumes & Networks
 # =============================================================================
 volumes:
-  mysql_data:
+  postgres_data:
+    driver: local
+  redis_data:
     driver: local
 
 networks:

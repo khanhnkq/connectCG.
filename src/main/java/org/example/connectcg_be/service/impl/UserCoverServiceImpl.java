@@ -16,6 +16,8 @@ public class UserCoverServiceImpl implements UserCoverService {
     private org.example.connectcg_be.service.MediaService mediaService;
     @Autowired
     private org.example.connectcg_be.service.UserProfileService userProfileService;
+    @Autowired
+    private org.example.connectcg_be.cache.PublicProfileCache publicProfileCache;
 
     @Override
     @org.springframework.transaction.annotation.Transactional
@@ -43,6 +45,7 @@ public class UserCoverServiceImpl implements UserCoverService {
         userCoverRepository.save(newCover);
 
         // 4. Return updated profile
+        publicProfileCache.invalidate(userId);
         return userProfileService.getUserProfile(userId, userId);
     }
 }

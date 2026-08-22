@@ -9,12 +9,17 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface UserProfileRepository extends JpaRepository<UserProfile, Integer> {
     Optional<UserProfile> findByUserId(Integer userId);
     boolean existsByUserId(Integer id);
+
+    @Query("SELECT p FROM UserProfile p JOIN FETCH p.user WHERE p.user.id IN :userIds")
+    List<UserProfile> findAllByUserIdIn(@Param("userIds") Collection<Integer> userIds);
 
     @Query("SELECT new org.example.connectcg_be.dto.MemberSearchResponse(" +
            "u.id, u.username, p.fullName, p.cityName, p.gender, p.maritalStatus, p.lookingFor, " +

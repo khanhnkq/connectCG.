@@ -36,6 +36,15 @@ public class RefreshToken {
     @Column(name = "token_hash", nullable = false)
     private String tokenHash;
 
+    @Size(max = 36)
+    @NotNull
+    @Column(name = "family_id", nullable = false, length = 36)
+    private String familyId;
+
+    @Size(max = 64)
+    @Column(name = "replaced_by_hash", length = 64)
+    private String replacedByHash;
+
     @Column(name = "user_agent", columnDefinition = "TEXT")
     private String userAgent;
 
@@ -57,5 +66,12 @@ public class RefreshToken {
     @ColumnDefault("0")
     @Column(name = "is_revoked")
     private Boolean isRevoked;
+
+    @Column(name = "revoked_at")
+    private Instant revokedAt;
+
+    @Size(max = 64)
+    @Column(name = "revoked_reason", length = 64)
+    private String revokedReason;
 
 }

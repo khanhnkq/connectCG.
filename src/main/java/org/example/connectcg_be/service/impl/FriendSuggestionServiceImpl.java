@@ -176,7 +176,7 @@ public class FriendSuggestionServiceImpl implements FriendSuggestionService {
                     SELECT 
                         candidate_id,
                         SUM(score) AS total_score,
-                        GROUP_CONCAT(reason_detail ORDER BY score DESC SEPARATOR ', ') AS combined_reasons
+                        STRING_AGG(reason_detail, ', ' ORDER BY score DESC) AS combined_reasons
                     FROM (
                         SELECT * FROM MutualFriends
                         UNION ALL
@@ -185,15 +185,15 @@ public class FriendSuggestionServiceImpl implements FriendSuggestionService {
                         SELECT * FROM SameHobby
                     ) AS AllSources
                     GROUP BY candidate_id
-                    HAVING total_score >= 5
+                    HAVING SUM(score) >= 5
                 )
                 SELECT 
                     ?, 
                     candidate_id, 
                     total_score, 
                     combined_reasons,
-                    DATE_ADD(NOW(), INTERVAL 24 HOUR),
-                    NOW()
+                    CURRENT_TIMESTAMP + INTERVAL '24 hours',
+                    CURRENT_TIMESTAMP
                 FROM FinalCandidates
                 ORDER BY total_score DESC
                 LIMIT 10

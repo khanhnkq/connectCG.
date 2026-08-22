@@ -26,16 +26,18 @@ public class WebSocketEventListener {
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
         Principal user = event.getUser();
-        if (user != null) {
-            UserPrincipal userPrincipal = (UserPrincipal) ((UsernamePasswordAuthenticationToken) user).getPrincipal();
-            Integer userId = userPrincipal.getId();
-            
-            onlineUserService.addUser(userId);
-            log.info("User connected: {}", userId);
+        UserPrincipal userPrincipal = resolveUser(user);
+        String sessionId = StompHeaderAccessor.wrap(event.getMessage()).getSessionId();
+        if (userPrincipal == null || sessionId == null) {
+            return;
+        }
 
-            // Broadcast online status
-            UserStatusDTO statusDTO = new UserStatusDTO(userId, "ONLINE");
-            messagingTemplate.convertAndSend("/topic/public/status", statusDTO);
+        Integer userId = userPrincipal.getId();
+        if (onlineUserService.connect(userId, sessionId)) {
+            log.info("User online: {}", userId);
+            messagingTemplate.convertAndSend(
+                    "/topic/public/status",
+                    new UserStatusDTO(userId, "ONLINE"));
         }
     }
 
@@ -44,16 +46,26 @@ public class WebSocketEventListener {
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
         Principal user = headerAccessor.getUser();
         
-        if (user != null) {
-            UserPrincipal userPrincipal = (UserPrincipal) ((UsernamePasswordAuthenticationToken) user).getPrincipal();
-            Integer userId = userPrincipal.getId();
-            
-            onlineUserService.removeUser(userId);
-            log.info("User disconnected: {}", userId);
-
-            // Broadcast offline status
-            UserStatusDTO statusDTO = new UserStatusDTO(userId, "OFFLINE");
-            messagingTemplate.convertAndSend("/topic/public/status", statusDTO);
+        UserPrincipal userPrincipal = resolveUser(user);
+        String sessionId = headerAccessor.getSessionId();
+        if (userPrincipal == null || sessionId == null) {
+            return;
         }
+
+        Integer userId = userPrincipal.getId();
+        if (onlineUserService.disconnect(userId, sessionId)) {
+            log.info("User offline: {}", userId);
+            messagingTemplate.convertAndSend(
+                    "/topic/public/status",
+                    new UserStatusDTO(userId, "OFFLINE"));
+        }
+    }
+
+    private UserPrincipal resolveUser(Principal principal) {
+        if (principal instanceof UsernamePasswordAuthenticationToken authentication
+                && authentication.getPrincipal() instanceof UserPrincipal user) {
+            return user;
+        }
+        return null;
     }
 }

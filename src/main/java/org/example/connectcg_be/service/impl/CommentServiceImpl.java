@@ -12,14 +12,14 @@ import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 
 @Service
 public class CommentServiceImpl implements CommentService {
@@ -40,9 +40,11 @@ public class CommentServiceImpl implements CommentService {
     @Autowired
     private org.example.connectcg_be.service.NotificationService notificationService;
     @Autowired
-    private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
-    @Autowired
     private org.example.connectcg_be.service.MediaService mediaService;
+    @Autowired
+    private org.example.connectcg_be.service.PostAccessPolicy postAccessPolicy;
+    @Autowired
+    private org.example.connectcg_be.service.PostRealtimeService postRealtimeService;
 
     private CommentDTO convertToDTO(Comment comment) {
         CommentDTO dto = new CommentDTO();
@@ -86,7 +88,10 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
-    public List<CommentDTO> getCommentsByPostId(Integer postId) {
+    public List<CommentDTO> getCommentsByPostId(Integer postId, Integer userId) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy bài viết"));
+        postAccessPolicy.requireCanView(post, userId);
         List<Comment> allComments = commentRepository
                 .findByPostIdAndIsDeletedFalseOrderByCreatedAtDesc(postId);
         Map<Integer, CommentDTO> dtoMap = new HashMap<>();
@@ -119,8 +124,10 @@ public class CommentServiceImpl implements CommentService {
     @Transactional
     @Retryable(retryFor = CannotAcquireLockException.class, maxAttempts = 3, backoff = @Backoff(delay = 100))
     public CommentDTO createComment(Integer postId, Integer userId, CreateCommentRequest request) {
+        validateCommentPayload(request);
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy bài viết"));
+        postAccessPolicy.requireCanView(post, userId);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
 
@@ -139,6 +146,12 @@ public class CommentServiceImpl implements CommentService {
         if (request.getParentId() != null) {
             Comment parent = commentRepository.findById(request.getParentId())
                     .orElseThrow(() -> new RuntimeException("Không tìm thấy comment cha"));
+            if (parent.getPost() == null || !postId.equals(parent.getPost().getId())) {
+                throw new RuntimeException("Comment cha không thuộc bài viết này");
+            }
+            if (Boolean.TRUE.equals(parent.getIsDeleted())) {
+                throw new RuntimeException("Comment cha đã bị xóa");
+            }
             // Kiểm tra độ sâu (max 3 cấp)
             int depth = getCommentDepth(parent);
             if (depth >= 2) {
@@ -182,62 +195,91 @@ public class CommentServiceImpl implements CommentService {
             notification.setIsRead(false);
 
             String truncatedContent = saved.getContent();
-            if (truncatedContent != null && truncatedContent.length() > 50) {
-                truncatedContent = truncatedContent.substring(0, 47) + "...";
+            if (truncatedContent == null || truncatedContent.isBlank()) {
+                notification.setContent(commenterName + " đã bình luận bằng một hình ảnh.");
+            } else {
+                if (truncatedContent.length() > 50) {
+                    truncatedContent = truncatedContent.substring(0, 47) + "...";
+                }
+                notification.setContent(
+                        commenterName + " đã bình luận về bài viết của bạn: \"" + truncatedContent + "\"");
             }
-            notification.setContent(commenterName + " đã bình luận về bài viết của bạn: \"" + truncatedContent + "\"");
             notificationService.sendNotification(notification);
         }
 
-        // Cập nhật comment count của post - atomic update to prevent deadlock
-        postRepository.incrementCommentCount(postId);
-
-        // Broadcast realtime AFTER commit
+        // The publisher schedules durable events after the transaction commits.
         CommentDTO dto = convertToDTO(saved);
-        final int newCommentCount = post.getCommentCount() + 1; // Estimate for broadcast
-
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                CommentEventDTO event = new CommentEventDTO("CREATED", postId, dto, saved.getId(), newCommentCount);
-                messagingTemplate.convertAndSend("/topic/comments", event);
-            }
-        });
+        int newCommentCount = Math.toIntExact(commentRepository.countByPostIdAndIsDeletedFalse(postId));
+        postRepository.updateCommentCount(postId, newCommentCount);
+        CommentEventDTO event = new CommentEventDTO("CREATED", postId, dto, saved.getId(), newCommentCount);
+        postRealtimeService.publishCommentEvent(post, event);
 
         return dto;
     }
 
     @Override
     @Transactional
-    public void deleteComment(Integer commentId, Integer userId) {
+    public void deleteComment(Integer postId, Integer commentId, Integer userId) {
         Comment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy comment"));
+        if (comment.getPost() == null || !postId.equals(comment.getPost().getId())) {
+            throw new RuntimeException("Comment không thuộc bài viết này");
+        }
+        postAccessPolicy.requireCanView(comment.getPost(), userId);
 
         // Chỉ cho phép xóa comment của chính mình
         if (!comment.getAuthor().getId().equals(userId)) {
             throw new RuntimeException("Bạn chỉ có thế xóa comment của chính mình");
         }
 
-        comment.setIsDeleted(true);
-        commentRepository.save(comment);
+        if (Boolean.TRUE.equals(comment.getIsDeleted())) {
+            return;
+        }
+
+        List<Comment> activeComments = commentRepository
+                .findByPostIdAndIsDeletedFalseOrderByCreatedAtDesc(postId);
+        Set<Integer> deletedIds = collectSubtreeIds(activeComments, commentId);
+        activeComments.stream()
+                .filter(candidate -> deletedIds.contains(candidate.getId()))
+                .forEach(candidate -> candidate.setIsDeleted(true));
+        commentRepository.saveAll(activeComments.stream()
+                .filter(candidate -> deletedIds.contains(candidate.getId()))
+                .toList());
 
         // Lấy post để lấy thông tin cho broadcast
         Post post = comment.getPost();
 
-        // Giảm comment count - atomic update to prevent deadlock
-        postRepository.decrementCommentCount(post.getId());
+        int newCommentCount = Math.toIntExact(commentRepository.countByPostIdAndIsDeletedFalse(postId));
+        postRepository.updateCommentCount(post.getId(), newCommentCount);
 
-        // Broadcast realtime AFTER commit
-        final int postId = post.getId();
-        final int newCommentCount = Math.max(0, post.getCommentCount() - 1); // Estimate for broadcast
+        // The publisher schedules durable events after the transaction commits.
+        CommentEventDTO event = new CommentEventDTO("DELETED", postId, null, commentId, newCommentCount);
+        postRealtimeService.publishCommentEvent(post, event);
+    }
 
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                CommentEventDTO event = new CommentEventDTO("DELETED", postId, null, commentId, newCommentCount);
-                messagingTemplate.convertAndSend("/topic/comments", event);
+    private void validateCommentPayload(CreateCommentRequest request) {
+        boolean hasContent = request != null && request.getContent() != null && !request.getContent().isBlank();
+        boolean hasImage = request != null && request.getImageUrl() != null && !request.getImageUrl().isBlank();
+        if (!hasContent && !hasImage) {
+            throw new IllegalArgumentException("Bình luận phải có nội dung hoặc hình ảnh");
+        }
+    }
+
+    private Set<Integer> collectSubtreeIds(List<Comment> comments, Integer rootId) {
+        Set<Integer> subtreeIds = new HashSet<>();
+        subtreeIds.add(rootId);
+        boolean changed;
+        do {
+            changed = false;
+            for (Comment candidate : comments) {
+                if (candidate.getParent() != null
+                        && subtreeIds.contains(candidate.getParent().getId())
+                        && subtreeIds.add(candidate.getId())) {
+                    changed = true;
+                }
             }
-        });
+        } while (changed);
+        return subtreeIds;
     }
 
 }

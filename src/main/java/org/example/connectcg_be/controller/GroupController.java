@@ -22,7 +22,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/groups")
 @RequiredArgsConstructor
-@CrossOrigin("*")
 public class GroupController {
     @Autowired
     GroupService groupService;
@@ -54,7 +53,7 @@ public class GroupController {
     public ResponseEntity<Void> approvePost(@PathVariable("id") Integer id, @PathVariable("postId") Integer postId,
             Authentication authentication) {
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        postService.approvePost(postId, userPrincipal.getId());
+        postService.approveGroupPost(id, postId, userPrincipal.getId());
         return ResponseEntity.ok().build();
     }
 
@@ -63,7 +62,7 @@ public class GroupController {
     public ResponseEntity<Void> rejectPost(@PathVariable("id") Integer id, @PathVariable("postId") Integer postId,
             Authentication authentication) {
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        postService.rejectPost(postId, userPrincipal.getId());
+        postService.rejectGroupPost(id, postId, userPrincipal.getId());
         return ResponseEntity.ok().build();
     }
 

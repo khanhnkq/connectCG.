@@ -8,8 +8,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 
 @Component
 @Slf4j
@@ -19,7 +21,7 @@ public class JwtTokenProvider {
     @Value("${app.jwtSecret}")
     private String jwtSecret;
 
-    @Value("${app.jwtExpirationInMs:86400000}") // Mặc định 1 ngày
+    @Value("${app.jwtExpirationInMs:900000}")
     private long jwtExpirationInMs;
 
     // Tạo SecretKey chuẩn cho HS512
@@ -30,14 +32,18 @@ public class JwtTokenProvider {
         // Nếu lười config Base64, dùng: return Keys.hmacShaKeyFor(jwtSecret.getBytes());
     }
 
-    public String generateToken(UserPrincipal userPrincipal) {
+    public String generateToken(UserPrincipal userPrincipal, String sessionId) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpirationInMs);
 
         return Jwts.builder()
-                .subject(Integer.toString(userPrincipal.getId())) // Lưu User ID vào subject
+                .id(UUID.randomUUID().toString())
+                .subject(Integer.toString(userPrincipal.getId()))
                 .claim("username", userPrincipal.getUsername())
                 .claim("role", userPrincipal.getAuthorities().toString())
+                .claim("sid", sessionId)
+                .claim("ver", userPrincipal.getAuthVersion())
+                .claim("token_type", "access")
                 .issuedAt(now)
                 .expiration(expiryDate)
                 .signWith(getSigningKey())
@@ -45,22 +51,37 @@ public class JwtTokenProvider {
     }
     
     public Integer getUserIdFromJWT(String token) {
-        Claims claims = Jwts.parser()
-                .verifyWith(getSigningKey())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
+        return Integer.parseInt(parseClaims(token).getSubject());
+    }
 
-        return Integer.parseInt(claims.getSubject());
+    public String getTokenId(String token) {
+        return parseClaims(token).getId();
+    }
+
+    public String getSessionId(String token) {
+        return parseClaims(token).get("sid", String.class);
+    }
+
+    public int getAuthVersion(String token) {
+        Number version = parseClaims(token).get("ver", Number.class);
+        return version == null ? -1 : version.intValue();
+    }
+
+    public Instant getExpiration(String token) {
+        return parseClaims(token).getExpiration().toInstant();
+    }
+
+    public Duration getAccessTokenLifetime() {
+        return Duration.ofMillis(jwtExpirationInMs);
     }
 
     public boolean validateToken(String authToken) {
         try {
-            Jwts.parser()
-                    .verifyWith(getSigningKey())
-                    .build()
-                    .parseSignedClaims(authToken);
-            return true;
+            Claims claims = parseClaims(authToken);
+            return claims.getId() != null
+                    && claims.get("sid", String.class) != null
+                    && "access".equals(claims.get("token_type", String.class))
+                    && claims.get("ver", Number.class) != null;
         } catch (io.jsonwebtoken.security.SignatureException ex) {
             log.error("JWT signature không hợp lệ (secret verify không khớp secret đã ký).");
         } catch (MalformedJwtException ex) {
@@ -73,5 +94,13 @@ public class JwtTokenProvider {
             log.error("JWT claims string is empty.");
         }
         return false;
+    }
+
+    private Claims parseClaims(String token) {
+        return Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 }

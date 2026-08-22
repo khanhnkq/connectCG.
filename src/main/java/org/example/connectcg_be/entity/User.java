@@ -71,4 +71,8 @@ public class User {
     @ColumnDefault("0")
     @Column(name = "permanent_locked")
     private Boolean permanentLocked = false;
+
+    @ColumnDefault("0")
+    @Column(name = "auth_version", nullable = false)
+    private Integer authVersion = 0;
 }

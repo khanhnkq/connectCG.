@@ -7,11 +7,11 @@ import java.util.List;
 
 public interface CommentService {
     // Lấy danh sách comment dạng cây
-    List<CommentDTO> getCommentsByPostId(Integer postId);
+    List<CommentDTO> getCommentsByPostId(Integer postId, Integer userId);
 
     // Tạo comment mới
     CommentDTO createComment(Integer postId, Integer userId, CreateCommentRequest request);
 
     // Xóa comment
-    void deleteComment(Integer commentId, Integer userId);
+    void deleteComment(Integer postId, Integer commentId, Integer userId);
 }

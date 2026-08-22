@@ -38,8 +38,8 @@ public class FriendSuggestion {
     @Column(name = "score", precision = 5, scale = 2)
     private BigDecimal score;
 
-    @Size(max = 50)
-    @Column(name = "reason", length = 50)
+    @Size(max = 200)
+    @Column(name = "reason", length = 200)
     private String reason;
 
     @ColumnDefault("CURRENT_TIMESTAMP")

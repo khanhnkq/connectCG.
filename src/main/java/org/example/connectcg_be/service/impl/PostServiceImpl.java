@@ -11,14 +11,19 @@ import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -64,16 +69,17 @@ public class PostServiceImpl implements PostService {
     private org.example.connectcg_be.service.NotificationService notificationService;
 
     @Autowired
-    private SimpMessagingTemplate messagingTemplate;
+    private org.example.connectcg_be.service.PostAccessPolicy postAccessPolicy;
+
+    @Autowired
+    private org.example.connectcg_be.service.PostRealtimeService postRealtimeService;
 
     @Override
     public List<GroupPostDTO> getPendingPosts(Integer groupId, Integer userId) {
         List<Post> posts = postRepository
                 .findAllByGroupIdAndStatusAndIsDeletedFalseOrderByIsPinnedDescPinnedAtDescCreatedAtDesc(groupId,
                         "PENDING");
-        return posts.stream()
-                .map(post -> convertToDTO(post, userId))
-                .collect(Collectors.toList());
+        return convertToDTOs(posts, userId);
     }
 
     @Override
@@ -81,9 +87,7 @@ public class PostServiceImpl implements PostService {
         List<Post> posts = postRepository
                 .findAllByGroupIdAndStatusAndIsDeletedFalseOrderByIsPinnedDescPinnedAtDescCreatedAtDesc(groupId,
                         "APPROVED");
-        return posts.stream()
-                .map(post -> convertToDTO(post, userId))
-                .collect(Collectors.toList());
+        return convertToDTOs(posts, userId);
     }
 
     @Override
@@ -95,9 +99,7 @@ public class PostServiceImpl implements PostService {
         if (groupIds == null || groupIds.isEmpty())
             groupIds = List.of(-1);
         List<Post> posts = postRepository.findNewsfeedPosts(userId, friendIds, groupIds);
-        return posts.stream()
-                .map(post -> convertToDTO(post, userId))
-                .collect(Collectors.toList());
+        return convertToDTOs(posts, userId);
     }
 
     @Override
@@ -111,19 +113,114 @@ public class PostServiceImpl implements PostService {
         org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(page, size);
         org.springframework.data.domain.Page<Post> posts = postRepository.findNewsfeedPosts(userId, friendIds, groupIds,
                 pageable);
-        return posts.map(post -> convertToDTO(post, userId));
+        return convertToDTOPage(posts, userId);
     }
 
     @Override
-    public List<GroupPostDTO> getPostsByUserId(Integer userId) {
+    public List<GroupPostDTO> getPostsByUserId(Integer userId, Integer viewerId) {
         List<Post> posts = postRepository.findAllByAuthorIdAndStatusAndIsDeletedFalseOrderByCreatedAtDesc(userId,
                 "APPROVED");
-        return posts.stream()
-                .map(post -> convertToDTO(post, userId))
-                .collect(Collectors.toList());
+        List<Post> visiblePosts = posts.stream()
+                .filter(post -> postAccessPolicy.canView(post, viewerId))
+                .toList();
+        return convertToDTOs(visiblePosts, viewerId);
+    }
+
+    @Override
+    public int countPostsVisibleToUser(Integer userId, Integer viewerId) {
+        return Math.toIntExact(postRepository
+                .findAllByAuthorIdAndStatusAndIsDeletedFalseOrderByCreatedAtDesc(userId, "APPROVED")
+                .stream()
+                .filter(post -> postAccessPolicy.canView(post, viewerId))
+                .count());
     }
 
     private GroupPostDTO convertToDTO(Post post, Integer currentUserId) {
+        PostEnrichmentContext context = loadEnrichmentContext(List.of(post), currentUserId);
+        return convertToDTO(post, currentUserId, context, true);
+    }
+
+    private List<GroupPostDTO> convertToDTOs(List<Post> posts, Integer currentUserId) {
+        if (posts.isEmpty()) {
+            return List.of();
+        }
+        PostEnrichmentContext context = loadEnrichmentContext(posts, currentUserId);
+        return posts.stream()
+                .map(post -> convertToDTO(post, currentUserId, context, true))
+                .toList();
+    }
+
+    private Page<GroupPostDTO> convertToDTOPage(Page<Post> posts, Integer currentUserId) {
+        if (posts.isEmpty()) {
+            return posts.map(post -> convertToDTO(post, currentUserId));
+        }
+        PostEnrichmentContext context = loadEnrichmentContext(posts.getContent(), currentUserId);
+        return posts.map(post -> convertToDTO(post, currentUserId, context, true));
+    }
+
+    private PostEnrichmentContext loadEnrichmentContext(List<Post> posts, Integer currentUserId) {
+        List<Post> postsToEnrich = new ArrayList<>(posts);
+        posts.stream()
+                .map(Post::getOriginalPost)
+                .filter(Objects::nonNull)
+                .forEach(postsToEnrich::add);
+
+        Set<Integer> postIds = postsToEnrich.stream()
+                .map(Post::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Set<Integer> userIds = new LinkedHashSet<>();
+        for (Post candidate : postsToEnrich) {
+            if (candidate.getAuthor() != null) {
+                userIds.add(candidate.getAuthor().getId());
+            }
+            if (candidate.getApprovedBy() != null) {
+                userIds.add(candidate.getApprovedBy().getId());
+            }
+        }
+
+        Map<Integer, UserProfile> profilesByUserId = userIds.isEmpty()
+                ? Map.of()
+                : userProfileRepository.findAllByUserIdIn(userIds).stream()
+                        .collect(Collectors.toMap(
+                                profile -> profile.getUser().getId(),
+                                Function.identity(),
+                                (first, ignored) -> first));
+
+        Map<Integer, UserAvatar> avatarsByUserId = userIds.isEmpty()
+                ? Map.of()
+                : userAvatarRepository.findCurrentByUserIds(userIds).stream()
+                        .collect(Collectors.toMap(
+                                avatar -> avatar.getUser().getId(),
+                                Function.identity(),
+                                (first, ignored) -> first));
+
+        Map<Integer, List<PostMedia>> mediaByPostId = postIds.isEmpty()
+                ? Map.of()
+                : postMediaRepository.findAllByPostIdIn(postIds).stream()
+                        .collect(Collectors.groupingBy(media -> media.getId().getPostId()));
+
+        Map<Integer, String> reactionByPostId = currentUserId == null || postIds.isEmpty()
+                ? Map.of()
+                : reactionRepository.findAllByUserIdAndPostIdIn(currentUserId, postIds).stream()
+                        .collect(Collectors.toMap(
+                                reaction -> reaction.getId().getPostId(),
+                                Reaction::getType,
+                                (first, ignored) -> first));
+
+        return new PostEnrichmentContext(
+                profilesByUserId,
+                avatarsByUserId,
+                mediaByPostId,
+                reactionByPostId);
+    }
+
+    private GroupPostDTO convertToDTO(
+            Post post,
+            Integer currentUserId,
+            PostEnrichmentContext context,
+            boolean includeOriginalPost) {
         GroupPostDTO dto = new GroupPostDTO();
         dto.setId(post.getId());
         dto.setContent(post.getContent());
@@ -132,30 +229,24 @@ public class PostServiceImpl implements PostService {
         dto.setAuthorName(post.getAuthor().getUsername());
         dto.setShareCount(post.getShareCount() != null ? post.getShareCount() : 0);
 
-        if (post.getOriginalPost() != null) {
-            GroupPostDTO originalDto = convertToDTO(post.getOriginalPost(), currentUserId);
-            originalDto.setOriginalPost(null);// tranh loop
-            dto.setOriginalPost(originalDto);
+        if (includeOriginalPost && post.getOriginalPost() != null) {
+            dto.setOriginalPost(convertToDTO(post.getOriginalPost(), currentUserId, context, false));
         }
 
-        // Get Full Name
-        userProfileRepository.findByUserId(post.getAuthor().getId()).ifPresent(profile -> {
-            dto.setAuthorFullName(profile.getFullName());
-        });
-        if (dto.getAuthorFullName() == null) {
-            dto.setAuthorFullName(post.getAuthor().getUsername());
-        }
+        UserProfile authorProfile = context.profilesByUserId().get(post.getAuthor().getId());
+        dto.setAuthorFullName(authorProfile != null && authorProfile.getFullName() != null
+                ? authorProfile.getFullName()
+                : post.getAuthor().getUsername());
 
-        // Get Avatar
-        UserAvatar avatar = userAvatarRepository.findByUserIdAndIsCurrentTrue(post.getAuthor().getId());
+        UserAvatar avatar = context.avatarsByUserId().get(post.getAuthor().getId());
         if (avatar != null && avatar.getMedia() != null) {
             dto.setAuthorAvatar(avatar.getMedia().getUrl());
         } else {
             dto.setAuthorAvatar("https://cdn-icons-png.flaticon.com/512/149/149071.png");
         }
 
-        // Get Images
-        List<PostMedia> mediaList = postMediaRepository.findAllByPostId(post.getId())
+        List<PostMedia> mediaList = context.mediaByPostId()
+                .getOrDefault(post.getId(), List.of())
                 .stream()
                 .sorted(Comparator
                         .comparing(pm -> pm.getDisplayOrder() == null ? Integer.MAX_VALUE : pm.getDisplayOrder()))
@@ -170,10 +261,8 @@ public class PostServiceImpl implements PostService {
         }).toList();
         dto.setMedia(mediaDto);
         List<String> images = mediaList.stream()
-                .sorted(Comparator
-                        .comparing(pm -> pm.getDisplayOrder() == null ? Integer.MAX_VALUE : pm.getDisplayOrder()))
                 .map(pm -> pm.getMedia().getUrl())
-                .collect(Collectors.toList());
+                .toList();
         dto.setImages(images);
 
         // Moderation fields
@@ -184,20 +273,13 @@ public class PostServiceImpl implements PostService {
         dto.setVisibility(post.getVisibility());
 
         if (post.getApprovedBy() != null) {
-            userProfileRepository.findByUserId(post.getApprovedBy().getId()).ifPresent(profile -> {
-                dto.setApprovedByFullName(profile.getFullName());
-            });
-            if (dto.getApprovedByFullName() == null) {
-                dto.setApprovedByFullName(post.getApprovedBy().getUsername());
-            }
+            UserProfile approverProfile = context.profilesByUserId().get(post.getApprovedBy().getId());
+            dto.setApprovedByFullName(approverProfile != null && approverProfile.getFullName() != null
+                    ? approverProfile.getFullName()
+                    : post.getApprovedBy().getUsername());
         }
         if (currentUserId != null) {
-            org.example.connectcg_be.entity.ReactionId reactionId = new org.example.connectcg_be.entity.ReactionId(
-                    currentUserId, post.getId());
-
-            reactionRepository.findById(reactionId).ifPresent(reaction -> {
-                dto.setCurrentUserReaction(reaction.getType());
-            });
+            dto.setCurrentUserReaction(context.reactionByPostId().get(post.getId()));
         }
 
         if (post.getGroup() != null) {
@@ -216,20 +298,28 @@ public class PostServiceImpl implements PostService {
         return dto;
     }
 
+    private record PostEnrichmentContext(
+            Map<Integer, UserProfile> profilesByUserId,
+            Map<Integer, UserAvatar> avatarsByUserId,
+            Map<Integer, List<PostMedia>> mediaByPostId,
+            Map<Integer, String> reactionByPostId) {
+    }
+
     @Override
     public Page<GroupPostDTO> getPendingHomepagePosts(int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
-        return postRepository.findAllByGroupIdIsNullAndStatusAndIsDeletedFalseOrderByCreatedAtDesc("PENDING", pageable)
-                .map(post -> convertToDTO(post, null));
+        Page<Post> posts = postRepository
+                .findAllByGroupIdIsNullAndStatusAndIsDeletedFalseOrderByCreatedAtDesc("PENDING", pageable);
+        return convertToDTOPage(posts, null);
     }
 
     @Override
     public Page<GroupPostDTO> getAuditHomepagePosts(int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
-        return postRepository
+        Page<Post> posts = postRepository
                 .findAllByGroupIdIsNullAndStatusAndAiStatusAndIsDeletedFalseOrderByCreatedAtDesc("APPROVED", "TOXIC",
-                        pageable)
-                .map(post -> convertToDTO(post, null));
+                        pageable);
+        return convertToDTOPage(posts, null);
     }
 
     @Override
@@ -257,7 +347,7 @@ public class PostServiceImpl implements PostService {
         // Broadcast realtime
         GroupPostDTO postDTO = convertToDTO(post, adminId);
         PostEventDTO event = new PostEventDTO("CREATED", postDTO, post.getId());
-        messagingTemplate.convertAndSend("/topic/posts", event);
+        postRealtimeService.publishPostEvent(post, event);
     }
 
     @Override
@@ -292,7 +382,7 @@ public class PostServiceImpl implements PostService {
 
         // Broadcast realtime delete
         PostEventDTO event = new PostEventDTO("DELETED", null, post.getId());
-        messagingTemplate.convertAndSend("/topic/posts", event);
+        postRealtimeService.publishPostEvent(post, event);
 
         // Hard delete post record
         postRepository.delete(post);
@@ -302,8 +392,31 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional
     @Retryable(retryFor = CannotAcquireLockException.class, maxAttempts = 3, backoff = @Backoff(delay = 100))
-    public Post createPost(CreatePostRequest request, boolean skipAiCheck,
-            Integer userId) {
+    public void approveGroupPost(Integer groupId, Integer postId, Integer adminId) {
+        requirePostBelongsToGroup(groupId, postId);
+        approvePost(postId, adminId);
+    }
+
+    @Override
+    @Transactional
+    @Retryable(retryFor = CannotAcquireLockException.class, maxAttempts = 3, backoff = @Backoff(delay = 100))
+    public void rejectGroupPost(Integer groupId, Integer postId, Integer adminId) {
+        requirePostBelongsToGroup(groupId, postId);
+        rejectPost(postId, adminId);
+    }
+
+    private void requirePostBelongsToGroup(Integer groupId, Integer postId) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new RuntimeException("Bài viết không tồn tại"));
+        if (post.getGroup() == null || !groupId.equals(post.getGroup().getId())) {
+            throw new RuntimeException("Bài viết không thuộc nhóm này");
+        }
+    }
+
+    @Override
+    @Transactional
+    @Retryable(retryFor = CannotAcquireLockException.class, maxAttempts = 3, backoff = @Backoff(delay = 100))
+    public Post createPost(CreatePostRequest request, Integer userId) {
         User author = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -349,16 +462,11 @@ public class PostServiceImpl implements PostService {
         boolean isGroup = post.getGroup() != null;
         boolean shouldCheckAi = isGroup || isPublic;
 
-        if (!shouldCheckAi) {
-            skipAiCheck = true;
-        }
-
         // AI Moderation Logic with Simplified 0.6 threshold
-        if (skipAiCheck || isPrivileged) {
+        if (!shouldCheckAi || isPrivileged) {
             post.setStatus("APPROVED");
             post.setAiStatus(isPrivileged ? "SAFE" : "NOT_CHECKED");
             post.setAiScore(0.0);
-            skipAiCheck = true;
         } else {
             AiModerationResult aiResult = aiModerationService.checkPostContent(request.getContent());
             post.setCheckedAt(Instant.now());
@@ -382,12 +490,12 @@ public class PostServiceImpl implements PostService {
         if ("APPROVED".equals(savedPost.getStatus())) {
             GroupPostDTO dto = convertToDTO(savedPost, null);
             PostEventDTO event = new PostEventDTO("CREATED", dto, savedPost.getId());
-            messagingTemplate.convertAndSend("/topic/posts", event);
+            postRealtimeService.publishPostEvent(savedPost, event);
         } else if ("PENDING".equals(savedPost.getStatus())) {
             // Broadcast realtime for admins to see the new pending post
             GroupPostDTO dto = convertToDTO(savedPost, null);
             PostEventDTO event = new PostEventDTO("CREATED", dto, savedPost.getId());
-            messagingTemplate.convertAndSend("/topic/posts", event);
+            postRealtimeService.publishPostEvent(savedPost, event);
 
             TungNotificationDTO notifDto = new TungNotificationDTO();
             notifDto.setContent("Bài viết của bạn đã được gửi và đang chờ quản trị viên phê duyệt.");
@@ -401,8 +509,8 @@ public class PostServiceImpl implements PostService {
 
     @Override
     @Transactional
-    public GroupPostDTO createPostAndReturnDTO(CreatePostRequest request, boolean skipAiCheck, Integer userId) {
-        Post savedPost = createPost(request, skipAiCheck, userId);
+    public GroupPostDTO createPostAndReturnDTO(CreatePostRequest request, Integer userId) {
+        Post savedPost = createPost(request, userId);
         return convertToDTO(savedPost, userId);
     }
 
@@ -482,12 +590,12 @@ public class PostServiceImpl implements PostService {
         if ("APPROVED".equals(savedPost.getStatus())) {
             GroupPostDTO dto = convertToDTO(savedPost, null);
             PostEventDTO event = new PostEventDTO("UPDATED", dto, savedPost.getId());
-            messagingTemplate.convertAndSend("/topic/posts", event);
+            postRealtimeService.publishPostEvent(savedPost, event);
         } else if ("PENDING".equals(savedPost.getStatus())) {
             // Broadcast realtime for admins to see the pending update
             GroupPostDTO dto = convertToDTO(savedPost, null);
             PostEventDTO event = new PostEventDTO("UPDATED", dto, savedPost.getId());
-            messagingTemplate.convertAndSend("/topic/posts", event);
+            postRealtimeService.publishPostEvent(savedPost, event);
 
             TungNotificationDTO notifDto = new TungNotificationDTO();
             notifDto.setContent("Bài viết (chỉnh sửa) của bạn đang chờ kiểm duyệt lại.");
@@ -505,6 +613,10 @@ public class PostServiceImpl implements PostService {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new RuntimeException("Bài viết không tồn tại"));
 
+        if (Boolean.TRUE.equals(post.getIsDeleted())) {
+            return;
+        }
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Người dùng không tồn tại"));
 
@@ -516,9 +628,21 @@ public class PostServiceImpl implements PostService {
         }
         post.setIsDeleted(true);
         postRepository.save(post);
+
+        Post originalPost = post.getOriginalPost();
+        if (originalPost != null) {
+            long remainingShares = postRepository.countByOriginalPostIdAndIsDeletedFalse(originalPost.getId());
+            int shareCount = Math.toIntExact(remainingShares);
+            postRepository.updateShareCount(originalPost.getId(), shareCount);
+            originalPost.setShareCount(shareCount);
+
+            GroupPostDTO originalDto = convertToDTO(originalPost, userId);
+            PostEventDTO shareUpdateEvent = new PostEventDTO("UPDATED", originalDto, originalPost.getId());
+            postRealtimeService.publishPostEvent(originalPost, shareUpdateEvent);
+        }
         // Broadcast realtime event
         PostEventDTO event = new PostEventDTO("DELETED", null, postId);
-        messagingTemplate.convertAndSend("/topic/posts", event);
+        postRealtimeService.publishPostEvent(post, event);
     }
 
     @Override
@@ -532,7 +656,7 @@ public class PostServiceImpl implements PostService {
         org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(page, size);
         org.springframework.data.domain.Page<Post> posts = postRepository
                 .findAllByGroupIdIsNullAndStatusAndIsDeletedFalseOrderByCreatedAtDesc(status, pageable);
-        return posts.map(post -> convertToDTO(post, currentUserId));
+        return convertToDTOPage(posts, currentUserId);
     }
 
     private void attachMediaToPost(Post post, List<String> mediaUrls, User uploader) {
@@ -583,7 +707,7 @@ public class PostServiceImpl implements PostService {
         for (Post p : pendingPosts) {
             // Broadcast realtime delete
             PostEventDTO event = new PostEventDTO("DELETED", null, p.getId());
-            messagingTemplate.convertAndSend("/topic/posts", event);
+            postRealtimeService.publishPostEvent(p, event);
 
             // Hard delete
             postRepository.delete(p);
@@ -619,7 +743,7 @@ public class PostServiceImpl implements PostService {
             // Group Admin
             GroupMemberId memberId = new GroupMemberId(group.getId(), author.getId());
             return groupMemberRepository.findById(memberId)
-                    .map(m -> "ADMIN".equals(m.getRole()))
+                    .map(m -> "ACCEPTED".equals(m.getStatus()) && "ADMIN".equals(m.getRole()))
                     .orElse(false);
         }
 
@@ -630,6 +754,7 @@ public class PostServiceImpl implements PostService {
     public GroupPostDTO getPostById(Integer postId, Integer currentUserId) {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new RuntimeException("Bài viết không tồn tại"));
+        postAccessPolicy.requireCanView(post, currentUserId);
         return convertToDTO(post, currentUserId);
     }
 
@@ -660,13 +785,14 @@ public class PostServiceImpl implements PostService {
         // Broadcast realtime update
         GroupPostDTO postDTO = convertToDTO(post, userId);
         PostEventDTO event = new PostEventDTO("UPDATED", postDTO, post.getId());
-        messagingTemplate.convertAndSend("/topic/posts", event);
+        postRealtimeService.publishPostEvent(post, event);
     }
 
     @Override
     public GroupPostDTO sharePost(Integer originalPostId, CreatePostRequest request, Integer userId) {
         Post originalPost = postRepository.findById(originalPostId)
                 .orElseThrow(() -> new RuntimeException("Bài viết gốc không tồn tại"));
+        postAccessPolicy.requireCanView(originalPost, userId);
 
         // Nếu bài viết này là bài share, thì lấy bài gốc thực sự (root post) của nó.
         // Luôn đi tìm bài viết gốc cuối cùng để bài share luôn được gắn vào bài gốc
@@ -674,6 +800,7 @@ public class PostServiceImpl implements PostService {
         while (originalPost.getOriginalPost() != null) {
             originalPost = originalPost.getOriginalPost();
         }
+        postAccessPolicy.requireCanView(originalPost, userId);
 
         User author = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng này"));
@@ -726,17 +853,15 @@ public class PostServiceImpl implements PostService {
 
         Post savedPost = postRepository.save(newPost);
 
-        if (originalPost.getShareCount() == null) {
-            originalPost.setShareCount(1);
-        } else {
-            originalPost.setShareCount(originalPost.getShareCount() + 1);
-        }
-        postRepository.save(originalPost);
+        int shareCount = Math.toIntExact(
+                postRepository.countByOriginalPostIdAndIsDeletedFalse(originalPost.getId()));
+        postRepository.updateShareCount(originalPost.getId(), shareCount);
+        originalPost.setShareCount(shareCount);
 
         // Broadcast realtime update cho bài gốc (để cập nhật lượt share)
         GroupPostDTO originalDto = convertToDTO(originalPost, userId);
         PostEventDTO shareUpdateEvent = new PostEventDTO("UPDATED", originalDto, originalPost.getId());
-        messagingTemplate.convertAndSend("/topic/posts", shareUpdateEvent);
+        postRealtimeService.publishPostEvent(originalPost, shareUpdateEvent);
 
         if (!originalPost.getAuthor().getId().equals(userId)) {
             TungNotificationDTO notif = new TungNotificationDTO();

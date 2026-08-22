@@ -4,6 +4,8 @@ import org.example.connectcg_be.dto.CreatePostRequest;
 import org.example.connectcg_be.dto.GroupPostDTO;
 import org.example.connectcg_be.dto.ReactionRequest;
 import org.example.connectcg_be.entity.Post;
+import org.example.connectcg_be.ratelimit.RateLimitPolicy;
+import org.example.connectcg_be.ratelimit.RateLimitService;
 import org.example.connectcg_be.security.UserPrincipal;
 import org.example.connectcg_be.service.ReactionService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +19,6 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
 import java.util.List;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/posts")
 public class PostController {
@@ -27,6 +28,9 @@ public class PostController {
 
     @Autowired
     private ReactionService reactionService;
+
+    @Autowired
+    private RateLimitService rateLimitService;
 
     @GetMapping("")
     @PreAuthorize("isAuthenticated()")
@@ -39,8 +43,10 @@ public class PostController {
 
     @GetMapping("/user/{id}")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<List<GroupPostDTO>> getUserProfilePosts(@PathVariable("id") Integer id) {
-        return ResponseEntity.ok(postService.getPostsByUserId(id));
+    public ResponseEntity<List<GroupPostDTO>> getUserProfilePosts(
+            @PathVariable("id") Integer id,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        return ResponseEntity.ok(postService.getPostsByUserId(id, currentUser.getId()));
     }
 
     @GetMapping("/public/homepage")
@@ -73,10 +79,10 @@ public class PostController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<GroupPostDTO> createPost(
             @Valid @RequestBody CreatePostRequest request,
-            @RequestParam(defaultValue = "false") boolean skipAiCheck,
             Authentication authentication) {
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        GroupPostDTO createdPost = postService.createPostAndReturnDTO(request, skipAiCheck, userPrincipal.getId());
+        rateLimitService.check(RateLimitPolicy.AI_POST, userPrincipal.getId().toString());
+        GroupPostDTO createdPost = postService.createPostAndReturnDTO(request, userPrincipal.getId());
         return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
     }
 
@@ -121,7 +127,7 @@ public class PostController {
     @PostMapping("/{id}/react")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Void> reactToPost(@PathVariable Integer id, Authentication authentication,
-            @RequestBody ReactionRequest request) {
+            @Valid @RequestBody ReactionRequest request) {
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
         reactionService.reactToPost(id, userPrincipal.getId(), request.getReaction());
         return ResponseEntity.ok().build();
@@ -138,10 +144,12 @@ public class PostController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<GroupPostDTO> getPostById(@PathVariable("id") Integer id) {
-        Integer currentUserId = null;
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<GroupPostDTO> getPostById(
+            @PathVariable("id") Integer id,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
         try {
-            return ResponseEntity.ok(postService.getPostById(id, currentUserId));
+            return ResponseEntity.ok(postService.getPostById(id, currentUser.getId()));
         } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }

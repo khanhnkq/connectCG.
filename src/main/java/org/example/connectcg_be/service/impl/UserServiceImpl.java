@@ -4,8 +4,8 @@ import org.example.connectcg_be.dto.UserProfileDTO;
 import org.example.connectcg_be.entity.*;
 import org.example.connectcg_be.repository.*;
 import org.example.connectcg_be.service.UserService;
+import org.example.connectcg_be.realtime.RealtimeEventPublisher;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,7 +40,7 @@ public class UserServiceImpl implements UserService {
     private NotificationRepository notificationRepository;
 
     @Autowired
-    private SimpMessagingTemplate messagingTemplate;
+    private RealtimeEventPublisher realtimeEventPublisher;
 
     @Override
     public User findByIdUser(int id) {
@@ -222,7 +222,7 @@ public class UserServiceImpl implements UserService {
             return;
         }
         log.info("Sending {} message to user: {}", type, username);
-        messagingTemplate.convertAndSendToUser(
+        realtimeEventPublisher.sendToUser(
                 username,
                 "/queue/errors",
                 Map.of("type", type, "message", message));
