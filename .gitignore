@@ -40,3 +40,6 @@ out/
 docs/
 
 .env
+.env.production
+.deploy/
+/backups/
