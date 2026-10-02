@@ -46,6 +46,9 @@ public class SecurityConfig {
     @Autowired
     private org.example.connectcg_be.security.oauth2.OAuth2LoginFailureHandler oAuth2LoginFailureHandler;
 
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
     @Value("${app.auth.cookie-secure:false}")
     private boolean secureCookies;
 
@@ -53,15 +56,10 @@ public class SecurityConfig {
     private String cookieSameSite;
 
     @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
-
-    @Bean
     public AuthenticationProvider authenticationProvider() {
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
         authProvider.setUserDetailsService(userDetailsService);
-        authProvider.setPasswordEncoder(passwordEncoder());
+        authProvider.setPasswordEncoder(passwordEncoder);
         return authProvider;
     }
 
