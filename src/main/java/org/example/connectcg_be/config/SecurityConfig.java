@@ -43,6 +43,9 @@ public class SecurityConfig {
     @Autowired
     private OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
 
+    @Autowired
+    private org.example.connectcg_be.security.oauth2.OAuth2LoginFailureHandler oAuth2LoginFailureHandler;
+
     @Value("${app.auth.cookie-secure:false}")
     private boolean secureCookies;
 
@@ -77,15 +80,20 @@ public class SecurityConfig {
                 .secure(secureCookies)
                 .sameSite(cookieSameSite));
 
+        CsrfTokenRequestAttributeHandler requestHandler = new CsrfTokenRequestAttributeHandler();
+        requestHandler.setCsrfRequestAttributeName(null);
+
         http
                 .cors(org.springframework.security.config.Customizer.withDefaults())
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokenRepository)
-                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
+                        .csrfTokenRequestHandler(requestHandler))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/auth/csrf",
-                                "/api/v1/auth/verify-email").permitAll()
+                                "/api/v1/auth/verify-email",
+                                "/api/v1/media/view/**",
+                                "/api/v1/health/**").permitAll()
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/register",
@@ -93,14 +101,17 @@ public class SecurityConfig {
                                 "/api/v1/auth/reset-password",
                                 "/api/v1/auth/refresh",
                                 "/api/v1/auth/logout").permitAll()
-                        .requestMatchers("/oauth2/**", "/login/oauth2/**", "/error").permitAll()
+                        .requestMatchers("/oauth2/**", "/login/oauth2/**", "/api/v1/auth/callback/**", "/error").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**").permitAll()
                         .anyRequest().authenticated()
                 ).oauth2Login(oauth2 -> oauth2
+                        .redirectionEndpoint(redirection -> redirection
+                                .baseUri("/api/v1/auth/callback/*"))
                         .userInfoEndpoint(userInfo -> userInfo
                                 .userService(customOAuth2UserService))
-                        .successHandler(oAuth2LoginSuccessHandler))
+                        .successHandler(oAuth2LoginSuccessHandler)
+                        .failureHandler(oAuth2LoginFailureHandler))
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))

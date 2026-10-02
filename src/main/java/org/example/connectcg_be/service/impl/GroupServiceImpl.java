@@ -47,7 +47,100 @@ public class GroupServiceImpl implements GroupService {
     @Transactional
     public org.springframework.data.domain.Page<GroupDTO> findAllGroups(
             org.springframework.data.domain.Pageable pageable) {
-        return groupRepository.findAll(pageable).map(this::mapToDTO);
+        return enrichGroupDTOPage(groupRepository.findAll(pageable), null);
+    }
+
+    private org.springframework.data.domain.Page<GroupDTO> enrichGroupDTOPage(
+            org.springframework.data.domain.Page<Group> groupPage, Integer userId) {
+        List<Group> groups = groupPage.getContent();
+        if (groups.isEmpty()) {
+            return groupPage.map(this::mapToDTO);
+        }
+
+        List<Integer> groupIds = groups.stream().map(Group::getId).toList();
+        java.util.Set<Integer> ownerIds = groups.stream()
+                .map(g -> g.getOwner() != null ? g.getOwner().getId() : null)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        // 1. Batch owner full names
+        java.util.Map<Integer, String> ownerNameMap = new java.util.HashMap<>();
+        if (!ownerIds.isEmpty()) {
+            userProfileRepository.findAllByUserIdIn(ownerIds).forEach(p -> {
+                if (p.getUser() != null && p.getFullName() != null) {
+                    ownerNameMap.put(p.getUser().getId(), p.getFullName());
+                }
+            });
+        }
+
+        // 2. Batch member counts & pending request counts
+        java.util.Map<Integer, Long> memberCountMap = new java.util.HashMap<>();
+        java.util.Map<Integer, Long> pendingReqCountMap = new java.util.HashMap<>();
+        List<Object[]> memberCounts = groupMemberRepository.countGroupMembersByStatus(groupIds);
+        for (Object[] row : memberCounts) {
+            Integer gid = (Integer) row[0];
+            String status = (String) row[1];
+            Long cnt = (Long) row[2];
+            if ("ACCEPTED".equals(status)) {
+                memberCountMap.put(gid, cnt);
+            } else if ("REQUESTED".equals(status)) {
+                pendingReqCountMap.put(gid, cnt);
+            }
+        }
+
+        // 3. Batch pending posts counts
+        java.util.Map<Integer, Long> pendingPostsCountMap = new java.util.HashMap<>();
+        List<Object[]> pendingPosts = postRepository.countPendingPostsByGroupIds(groupIds);
+        for (Object[] row : pendingPosts) {
+            Integer gid = (Integer) row[0];
+            Long cnt = (Long) row[1];
+            pendingPostsCountMap.put(gid, cnt);
+        }
+
+        // 4. Batch current user membership
+        java.util.Map<Integer, GroupMember> userMembershipMap = new java.util.HashMap<>();
+        if (userId != null) {
+            List<GroupMember> memberships = groupMemberRepository.findAllByIdGroupIdInAndIdUserId(groupIds, userId);
+            for (GroupMember gm : memberships) {
+                userMembershipMap.put(gm.getId().getGroupId(), gm);
+            }
+        }
+
+        return groupPage.map(group -> {
+            String ownerName = group.getOwner() != null ? group.getOwner().getUsername() : null;
+            Integer ownerId = group.getOwner() != null ? group.getOwner().getId() : null;
+            String ownerFullName = (ownerId != null && ownerNameMap.containsKey(ownerId))
+                    ? ownerNameMap.get(ownerId)
+                    : ownerName;
+
+            String imageUrl = group.getCoverMedia() != null ? group.getCoverMedia().getUrl() : null;
+            Integer coverMediaId = group.getCoverMedia() != null ? group.getCoverMedia().getId() : null;
+
+            GroupDTO dto = new GroupDTO(
+                    group.getId(),
+                    group.getName(),
+                    group.getDescription(),
+                    group.getPrivacy(),
+                    group.getIsDeleted(),
+                    group.getCreatedAt(),
+                    ownerId,
+                    ownerName,
+                    ownerFullName,
+                    coverMediaId,
+                    imageUrl);
+
+            dto.setPendingRequestsCount(pendingReqCountMap.getOrDefault(group.getId(), 0L));
+            dto.setPendingPostsCount(pendingPostsCountMap.getOrDefault(group.getId(), 0L));
+            dto.setMemberCount(memberCountMap.getOrDefault(group.getId(), 0L));
+
+            if (userId != null && userMembershipMap.containsKey(group.getId())) {
+                GroupMember member = userMembershipMap.get(group.getId());
+                dto.setCurrentUserStatus(member.getStatus());
+                dto.setCurrentUserRole(member.getRole());
+            }
+
+            return dto;
+        });
     }
 
     private GroupDTO mapToDTO(Group group) {
@@ -146,35 +239,35 @@ public class GroupServiceImpl implements GroupService {
     @Transactional
     public org.springframework.data.domain.Page<GroupDTO> findMyGroups(Integer userId,
             org.springframework.data.domain.Pageable pageable) {
-        return groupRepository.findMyGroups(userId, pageable).map(g -> this.mapToDTO(g, userId));
+        return enrichGroupDTOPage(groupRepository.findMyGroups(userId, pageable), userId);
     }
 
     @Override
     @Transactional
     public org.springframework.data.domain.Page<GroupDTO> findMyManagedGroups(Integer userId,
             org.springframework.data.domain.Pageable pageable) {
-        return groupRepository.findMyManagedGroups(userId, pageable).map(g -> this.mapToDTO(g, userId));
+        return enrichGroupDTOPage(groupRepository.findMyManagedGroups(userId, pageable), userId);
     }
 
     @Override
     @Transactional
     public org.springframework.data.domain.Page<GroupDTO> findMyJoinedGroups(Integer userId,
             org.springframework.data.domain.Pageable pageable) {
-        return groupRepository.findMyJoinedGroups(userId, pageable).map(g -> this.mapToDTO(g, userId));
+        return enrichGroupDTOPage(groupRepository.findMyJoinedGroups(userId, pageable), userId);
     }
 
     @Override
     @Transactional
     public org.springframework.data.domain.Page<GroupDTO> findDiscoverGroups(Integer userId,
             org.springframework.data.domain.Pageable pageable) {
-        return groupRepository.findDiscoverGroups(userId, pageable).map(g -> this.mapToDTO(g, userId));
+        return enrichGroupDTOPage(groupRepository.findDiscoverGroups(userId, pageable), userId);
     }
 
     @Override
     @Transactional
     public org.springframework.data.domain.Page<GroupDTO> searchGroups(String query, Integer userId,
             org.springframework.data.domain.Pageable pageable) {
-        return groupRepository.searchByKeyword(query, pageable).map(g -> this.mapToDTO(g, userId));
+        return enrichGroupDTOPage(groupRepository.searchByKeyword(query, pageable), userId);
     }
 
     @Override

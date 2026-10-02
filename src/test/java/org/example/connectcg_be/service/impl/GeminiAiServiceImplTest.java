@@ -87,6 +87,66 @@ class GeminiAiServiceImplTest {
         verify(restTemplate, never()).exchange(anyString(), any(), any(), eq(String.class));
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void emptyResponseResultsInAiErrorAndNotCached() {
+        when(cache.find("empty-test", "gemini-test", "v1")).thenReturn(Optional.empty());
+        String emptyJsonPayload = """
+                {"candidates":[{"content":{"parts":[{"text":"{}"}]}}]}
+                """;
+        when(restTemplate.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok(emptyJsonPayload));
+
+        AiModerationResult result = service.checkPostContent("empty-test");
+
+        assertEquals("AI_ERROR", result.getLabel());
+        assertEquals(0.9, result.getScore());
+        verify(cache, never()).store(anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void missingReasonResultsInAiError() {
+        when(cache.find("missing-reason", "gemini-test", "v1")).thenReturn(Optional.empty());
+        String jsonPayload = """
+                {"candidates":[{"content":{"parts":[{"text":"{\\"label\\":\\"SAFE\\"}"}]}}]}
+                """;
+        when(restTemplate.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok(jsonPayload));
+
+        AiModerationResult result = service.checkPostContent("missing-reason");
+
+        assertEquals("AI_ERROR", result.getLabel());
+        verify(cache, never()).store(anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void unknownLabelValueResultsInAiError() {
+        when(cache.find("unknown-label", "gemini-test", "v1")).thenReturn(Optional.empty());
+        when(restTemplate.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok(geminiResponse("UNKNOWN_VAL", "Lý do")));
+
+        AiModerationResult result = service.checkPostContent("unknown-label");
+
+        assertEquals("AI_ERROR", result.getLabel());
+        verify(cache, never()).store(anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void restTemplateExceptionReturnsAiErrorAndNotCached() {
+        when(cache.find("timeout-test", "gemini-test", "v1")).thenReturn(Optional.empty());
+        when(restTemplate.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
+                .thenThrow(new org.springframework.web.client.ResourceAccessException("Read timed out"));
+
+        AiModerationResult result = service.checkPostContent("timeout-test");
+
+        assertEquals("AI_ERROR", result.getLabel());
+        assertEquals(0.9, result.getScore());
+        verify(cache, never()).store(anyString(), anyString(), anyString(), any());
+    }
+
     private String geminiResponse(String label, String reason) {
         return """
                 {"candidates":[{"content":{"parts":[{"text":"{\\"label\\":\\"%s\\",\\"reason\\":\\"%s\\"}"}]}}]}

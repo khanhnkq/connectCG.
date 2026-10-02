@@ -36,7 +36,8 @@ class MediaUploadServiceTest {
                 objectStorageService,
                 mediaRepository,
                 userService,
-                new MediaFileValidator());
+                new MediaFileValidator(),
+                new ImageOptimizationService());
         png = new MockMultipartFile(
                 "file",
                 "avatar.png",

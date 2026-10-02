@@ -21,24 +21,33 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final WebSocketAuthorizationService authorizationService;
     private final TaskScheduler heartbeatScheduler;
     private final String[] allowedOrigins;
+    private final org.example.connectcg_be.security.AuthCookieService authCookieService;
+    private final org.example.connectcg_be.security.AccessTokenRevocationService revocationService;
+    private final org.example.connectcg_be.security.JwtTokenProvider tokenProvider;
 
     public WebSocketConfig(
             WebSocketAuthorizationService authorizationService,
             @Qualifier("taskScheduler") TaskScheduler heartbeatScheduler,
-            @Value("${app.websocket.allowed-origins:${frontend.url:http://localhost:5173}}") String allowedOrigins) {
+            @Value("${app.websocket.allowed-origins:${frontend.url:http://localhost:5173}}") String allowedOrigins,
+            org.example.connectcg_be.security.AuthCookieService authCookieService,
+            org.example.connectcg_be.security.AccessTokenRevocationService revocationService,
+            org.example.connectcg_be.security.JwtTokenProvider tokenProvider) {
         this.authorizationService = authorizationService;
         this.heartbeatScheduler = heartbeatScheduler;
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
                 .toArray(String[]::new);
+        this.authCookieService = authCookieService;
+        this.revocationService = revocationService;
+        this.tokenProvider = tokenProvider;
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns(allowedOrigins)
-                .addInterceptors(new HttpPrincipalHandshakeInterceptor())
+                .addInterceptors(new HttpPrincipalHandshakeInterceptor(authCookieService))
                 .withSockJS();
     }
 
@@ -53,7 +62,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(new WebSocketAuthInterceptor(authorizationService));
+        registration.interceptors(new WebSocketAuthInterceptor(authorizationService, revocationService, tokenProvider));
         registration.taskExecutor()
                 .corePoolSize(2)
                 .maxPoolSize(8)

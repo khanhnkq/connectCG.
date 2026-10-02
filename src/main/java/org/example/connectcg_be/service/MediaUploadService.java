@@ -25,6 +25,7 @@ public class MediaUploadService {
     private final MediaRepository mediaRepository;
     private final UserService userService;
     private final MediaFileValidator mediaFileValidator;
+    private final ImageOptimizationService imageOptimizationService;
 
     public MediaUploadResponse upload(MultipartFile file, String categoryValue, Integer uploaderId) {
         long startedAt = System.nanoTime();
@@ -39,19 +40,27 @@ public class MediaUploadService {
             throw new MediaValidationException("Không tìm thấy người upload");
         }
 
+        ImageOptimizationService.OptimizedImage optimized;
+        try {
+            optimized = imageOptimizationService.optimize(file.getInputStream(), file.getSize(), validated, category);
+        } catch (IOException e) {
+            throw new MediaValidationException("Không thể đọc file upload", e);
+        }
+
         String objectKey = category.path() + "/" + YearMonth.now().format(YEAR_MONTH_PATH) + "/"
-                + UUID.randomUUID() + "." + validated.extension();
-        StoredObject stored = store(file, validated, objectKey);
+                + UUID.randomUUID() + "." + optimized.extension();
+        StoredObject stored = objectStorageService.store(
+                optimized.inputStream(), optimized.sizeBytes(), optimized.contentType(), objectKey);
 
         Media media = new Media();
         media.setUploader(uploader);
         media.setUrl(stored.url());
         media.setType(validated.mediaType());
-        media.setSizeBytes(Math.toIntExact(file.getSize()));
+        media.setSizeBytes(Math.toIntExact(optimized.sizeBytes()));
         media.setStorageProvider("MINIO");
         media.setStorageBucket(stored.bucket());
         media.setObjectKey(stored.objectKey());
-        media.setContentType(validated.contentType());
+        media.setContentType(optimized.contentType());
         media.setCategory(category.path().toUpperCase());
         media.setUploadedAt(Instant.now());
         media.setIsDeleted(false);

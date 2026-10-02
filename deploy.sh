@@ -110,7 +110,7 @@ configure_env() {
   minio_user="$(prompt 'MinIO access key' "$(env_get MINIO_ACCESS_KEY || true)")"; minio_user="${minio_user:-connect-minio}"
   minio_password="$(prompt_secret 'MinIO secret key' "$(env_get MINIO_SECRET_KEY || true)")"; minio_password="${minio_password:-$(random_secret 32)}"
   minio_url="$(prompt 'MinIO public URL' "$(env_get MINIO_PUBLIC_URL || true)")"
-  health_url="$(prompt 'Backend health-check URL' "http://127.0.0.1:${backend_port}/api/v1/auth/csrf")"
+  health_url="$(prompt 'Backend health-check URL' "http://127.0.0.1:${backend_port}/api/v1/health/readiness")"
   smtp_host="$(prompt 'SMTP host' "$(env_get MAIL_HOST || true)")"
   smtp_port="$(prompt 'SMTP port' "$(env_get MAIL_PORT || true)")"; smtp_port="${smtp_port:-587}"
   smtp_user="$(prompt 'SMTP username' "$(env_get MAIL_USERNAME || true)")"
@@ -199,6 +199,54 @@ backup_database() {
   local backup_file="$BACKUP_DIR/postgres-$(date +%Y%m%d-%H%M%S).sql.gz"
   compose exec -T postgres pg_dump -U "$(env_get DB_USERNAME)" -d "$(env_get DB_NAME)" | gzip > "$backup_file"
   info "Đã backup database: $backup_file"
+
+  # Generate SHA256 checksum for integrity verification
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$backup_file" > "$backup_file.sha256"
+  else
+    shasum -a 256 "$backup_file" > "$backup_file.sha256"
+  fi
+  info "Đã tạo SHA256 checksum: $backup_file.sha256"
+}
+
+restore_database() {
+  [[ "$(env_get DB_MODE)" == "local" ]] || { warn "Database managed: khôi phục qua dashboard của nhà cung cấp."; return 0; }
+  local backup_file
+  backup_file="$(prompt 'Đường dẫn file backup (.sql.gz)' "")"
+  [[ -f "$backup_file" ]] || fail "File backup không tồn tại: $backup_file"
+
+  if [[ -f "${backup_file}.sha256" ]]; then
+    info "Đang kiểm tra SHA256 checksum..."
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum -c "${backup_file}.sha256" || fail "Checksum không khớp! File backup có thể bị hỏng."
+    else
+      shasum -a 256 -c "${backup_file}.sha256" || fail "Checksum không khớp! File backup có thể bị hỏng."
+    fi
+    info "Checksum hợp lệ."
+  fi
+
+  warn "CẢNH BÁO KHÔI PHỤC: Hành động này sẽ GHI ĐÈ toàn bộ dữ liệu database hiện tại!"
+  local confirm
+  confirm="$(prompt "Gõ 'RESTORE' để xác nhận" "")"
+  [[ "$confirm" == "RESTORE" ]] || fail "Hủy khôi phục database."
+
+  gunzip -c "$backup_file" | compose exec -T postgres psql -U "$(env_get DB_USERNAME)" -d "$(env_get DB_NAME)"
+  info "Khôi phục database thành công từ: $backup_file"
+}
+
+save_release_state() {
+  local tag="$1"
+  local git_sha=""
+  git_sha="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+  cat <<EOF > "$STATE_DIR/release-state.json"
+{
+  "tag": "$tag",
+  "deployed_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "git_sha": "$git_sha",
+  "db_mode": "$(env_get DB_MODE)"
+}
+EOF
+  info "Đã cập nhật $STATE_DIR/release-state.json"
 }
 
 verify_backend() {
@@ -207,7 +255,7 @@ verify_backend() {
   url="$(env_get HEALTHCHECK_URL)"
   for attempt in $(seq 1 20); do
     code="$(curl -sS -o /dev/null -w '%{http_code}' "$url" || true)"
-    if [[ "$code" =~ ^(2|3)[0-9][0-9]$ ]]; then
+    if [[ "$code" == "200" ]]; then
       info "Health check thành công ($code): $url"
       return 0
     fi
@@ -227,6 +275,11 @@ deploy_tag() {
     desired="$(prompt 'Tag cần deploy' "$previous")"
   fi
   [[ -n "$desired" ]] || desired="latest"
+
+  if [[ "$desired" == "latest" ]]; then
+    warn "Đang deploy tag 'latest'. Trong môi trường Production khuyên dùng tag phiên bản cụ thể (ví dụ v1.0.0 hoặc sha-xxx)."
+  fi
+
   BACKEND_TAG_OVERRIDE="$desired" compose config >/dev/null
   backup_database
   BACKEND_TAG_OVERRIDE="$desired" compose pull
@@ -234,6 +287,7 @@ deploy_tag() {
   if verify_backend; then
     [[ -n "$previous" && "$previous" != "$desired" ]] && printf '%s\n' "$previous" > "$STATE_DIR/previous-tag"
     printf '%s\n' "$desired" > "$STATE_DIR/current-tag"
+    save_release_state "$desired"
     info "Backend đang chạy tag $desired."
   else
     fail "Deploy không qua health check. Chọn Rollback để quay lại tag trước."
@@ -242,6 +296,7 @@ deploy_tag() {
 
 rollback() {
   ensure_ready
+  warn "LƯU Ý ROLLBACK: Rollback container image không tự động rollback schema Flyway database. Kiểm tra migration trước khi khôi phục!"
   local fallback target
   fallback="$(test -f "$STATE_DIR/previous-tag" && tr -d '\n' < "$STATE_DIR/previous-tag" || true)"
   target="$(prompt 'Tag rollback (nên dùng sha-...)' "$fallback")"
@@ -251,7 +306,7 @@ rollback() {
 
 menu() {
   while true; do
-    printf '\nConnectCG Backend Deploy\n  1) Tạo/cập nhật environment\n  2) Pull và deploy/update\n  3) Trạng thái\n  4) Logs backend\n  5) Backup PostgreSQL local\n  6) Rollback image tag\n  0) Thoát\n'
+    printf '\nConnectCG Backend Deploy\n  1) Tạo/cập nhật environment\n  2) Pull và deploy/update\n  3) Trạng thái\n  4) Logs backend\n  5) Backup PostgreSQL local\n  6) Restore PostgreSQL local\n  7) Rollback image tag\n  0) Thoát\n'
     read -r -p 'Chọn: ' choice
     case "$choice" in
       1) configure_env ;;
@@ -259,7 +314,8 @@ menu() {
       3) ensure_ready; compose ps ;;
       4) ensure_ready; compose logs --tail 200 -f backend ;;
       5) ensure_ready; backup_database ;;
-      6) rollback ;;
+      6) ensure_ready; restore_database ;;
+      7) rollback ;;
       0) return 0 ;;
       *) warn "Lựa chọn không hợp lệ." ;;
     esac

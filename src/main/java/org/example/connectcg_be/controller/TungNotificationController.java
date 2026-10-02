@@ -12,7 +12,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/notifications")
+@RequestMapping("/api/v1/notifications")
 @RequiredArgsConstructor
 public class TungNotificationController {
 
@@ -27,15 +27,17 @@ public class TungNotificationController {
 
     @PutMapping("/{id}/read")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Void> markAsRead(@PathVariable("id") Integer id) {
-        notificationService.markAsRead(id);
+    public ResponseEntity<Void> markAsRead(@PathVariable("id") Integer id, Authentication authentication) {
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        notificationService.markAsRead(id, userPrincipal.getId());
         return ResponseEntity.ok().build();
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Void> deleteNotification(@PathVariable("id") Integer id) {
-        notificationService.deleteNotification(id);
+    public ResponseEntity<Void> deleteNotification(@PathVariable("id") Integer id, Authentication authentication) {
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        notificationService.deleteNotification(id, userPrincipal.getId());
         return ResponseEntity.ok().build();
     }
 }

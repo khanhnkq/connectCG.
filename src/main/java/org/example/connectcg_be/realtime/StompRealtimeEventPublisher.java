@@ -1,11 +1,13 @@
 package org.example.connectcg_be.realtime;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessageSendingOperations;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class StompRealtimeEventPublisher implements RealtimeEventPublisher {
@@ -23,20 +25,28 @@ public class StompRealtimeEventPublisher implements RealtimeEventPublisher {
 
     @Override
     public void sendEphemeralToTopic(String destination, Object payload) {
-        messagingTemplate.convertAndSend(destination, payload);
+        executeSafely(() -> messagingTemplate.convertAndSend(destination, payload));
     }
 
     private void afterCommitOrNow(Runnable sendAction) {
         if (!isWriteTransaction()) {
-            sendAction.run();
+            executeSafely(sendAction);
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                sendAction.run();
+                executeSafely(sendAction);
             }
         });
+    }
+
+    private void executeSafely(Runnable sendAction) {
+        try {
+            sendAction.run();
+        } catch (Exception e) {
+            log.error("Failed to send realtime event: {}", e.getMessage(), e);
+        }
     }
 
     private boolean isWriteTransaction() {
@@ -44,3 +54,4 @@ public class StompRealtimeEventPublisher implements RealtimeEventPublisher {
                 && !TransactionSynchronizationManager.isCurrentTransactionReadOnly();
     }
 }
+

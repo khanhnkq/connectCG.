@@ -21,4 +21,12 @@ public interface FriendRequestRepository extends JpaRepository<FriendRequest, In
 
     // Tìm lời mời để hủy
     Optional<FriendRequest> findBySenderIdAndReceiverIdAndStatus(Integer senderId, Integer receiverId, String status);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("UPDATE FriendRequest fr SET fr.status = :newStatus, fr.respondedAt = :now WHERE fr.id = :id AND fr.receiver.id = :receiverId AND fr.status = 'PENDING'")
+    int updateStatusIfPending(
+            @org.springframework.data.repository.query.Param("id") Integer id,
+            @org.springframework.data.repository.query.Param("receiverId") Integer receiverId,
+            @org.springframework.data.repository.query.Param("newStatus") String newStatus,
+            @org.springframework.data.repository.query.Param("now") java.time.Instant now);
 }

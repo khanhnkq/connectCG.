@@ -25,6 +25,24 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
   @Query("UPDATE Post p SET p.shareCount = :count WHERE p.id = :postId")
   void updateShareCount(@Param("postId") Integer postId, @Param("count") Integer count);
 
+  @Modifying
+  @Query("UPDATE Post p SET p.reactCount = CASE WHEN (COALESCE(p.reactCount, 0) + :delta) < 0 THEN 0 ELSE (COALESCE(p.reactCount, 0) + :delta) END WHERE p.id = :postId")
+  int adjustReactCount(@Param("postId") Integer postId, @Param("delta") int delta);
+
+  @Modifying
+  @Query("UPDATE Post p SET p.commentCount = CASE WHEN (COALESCE(p.commentCount, 0) + :delta) < 0 THEN 0 ELSE (COALESCE(p.commentCount, 0) + :delta) END WHERE p.id = :postId")
+  int adjustCommentCount(@Param("postId") Integer postId, @Param("delta") int delta);
+
+  @Modifying
+  @Query("UPDATE Post p SET p.shareCount = CASE WHEN (COALESCE(p.shareCount, 0) + :delta) < 0 THEN 0 ELSE (COALESCE(p.shareCount, 0) + :delta) END WHERE p.id = :postId")
+  int adjustShareCount(@Param("postId") Integer postId, @Param("delta") int delta);
+
+  @Query("SELECT p.reactCount FROM Post p WHERE p.id = :postId")
+  Integer findReactCountById(@Param("postId") Integer postId);
+
+  @Query("SELECT p.commentCount FROM Post p WHERE p.id = :postId")
+  Integer findCommentCountById(@Param("postId") Integer postId);
+
   long countByOriginalPostIdAndIsDeletedFalse(Integer originalPostId);
 
   Integer countByAuthorIdAndIsDeletedFalse(Integer authorId);
@@ -32,6 +50,9 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
   Integer countByAuthorIdAndStatusAndIsDeletedFalse(Integer authorId, String status);
 
   long countByGroupIdAndStatus(Integer groupId, String status);
+
+  @Query("SELECT p.group.id, count(p) FROM Post p WHERE p.group.id IN :groupIds AND p.status = 'PENDING' AND p.isDeleted = false GROUP BY p.group.id")
+  List<Object[]> countPendingPostsByGroupIds(@Param("groupIds") java.util.Collection<Integer> groupIds);
 
   @EntityGraph(attributePaths = { "author", "group", "approvedBy", "originalPost", "originalPost.author",
       "originalPost.group", "originalPost.approvedBy" })
@@ -70,7 +91,7 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
         where p.isDeleted = false
           and p.status = 'APPROVED'
           and (
-            (p.group.id in :groupIds)
+            (p.group.id in :groupIds and p.group.isDeleted = false)
             or
             (p.group is null and (
                 p.author.id = :userId
@@ -91,7 +112,7 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
         where p.isDeleted = false
           and p.status = 'APPROVED'
           and (
-            (p.group.id in :groupIds)
+            (p.group.id in :groupIds and p.group.isDeleted = false)
             or
             (p.group is null and (
                 p.author.id = :userId
@@ -105,7 +126,7 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
         where p.isDeleted = false
           and p.status = 'APPROVED'
           and (
-            (p.group.id in :groupIds)
+            (p.group.id in :groupIds and p.group.isDeleted = false)
             or
             (p.group is null and (
                 p.author.id = :userId

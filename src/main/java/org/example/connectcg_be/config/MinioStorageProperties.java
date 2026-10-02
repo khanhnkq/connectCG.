@@ -13,4 +13,5 @@ public class MinioStorageProperties {
     private String accessKey;
     private String secretKey;
     private String bucket;
+    private String region = "garage";
 }

@@ -35,20 +35,27 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
                                         Authentication authentication) throws IOException, ServletException {
-        OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
-        String email = oAuth2User.getAttribute("email");
-        // [LOGIC MỚI] Check nếu email bị null
-        if (email == null || email.isEmpty()) {
-            String idSource = oAuth2User.getAttribute("id"); // Lấy ID Facebook
-            if (idSource != null) {
-                email = idSource + "@facebook.id"; // Tạo email giả: 12345678@facebook.id
-            } else {
-                // Trường hợp cực hiếm: không có cả ID -> Báo lỗi
-                throw new OAuth2AuthenticationException("Email not found from OAuth2 provider");
+        UserPrincipal userPrincipal;
+        User user;
+
+        if (authentication.getPrincipal() instanceof UserPrincipal principal) {
+            userPrincipal = principal;
+            user = userRepository.findById(principal.getId()).orElseThrow();
+        } else {
+            OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
+            String email = oAuth2User.getAttribute("email");
+            if (email == null || email.isEmpty()) {
+                String idSource = oAuth2User.getAttribute("id");
+                if (idSource != null) {
+                    email = idSource + "@facebook.id";
+                } else {
+                    throw new OAuth2AuthenticationException("Email not found from OAuth2 provider");
+                }
             }
+            user = userRepository.findByEmail(email).orElseThrow();
+            userPrincipal = UserPrincipal.create(user);
         }
-        User user = userRepository.findByEmail(email).orElseThrow();
-        UserPrincipal userPrincipal = UserPrincipal.create(user);
+
         RefreshTokenService.IssuedRefreshToken refreshToken = refreshTokenService.issue(user, request);
         String accessToken = tokenProvider.generateToken(userPrincipal, refreshToken.familyId());
         authCookieService.writeSessionCookies(response, accessToken, refreshToken.rawToken());

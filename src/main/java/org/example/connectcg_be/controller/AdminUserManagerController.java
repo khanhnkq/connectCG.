@@ -16,7 +16,7 @@ import org.springframework.security.core.Authentication;
 import org.example.connectcg_be.security.UserPrincipal;
 
 @RestController
-@RequestMapping("/api/admin-user")
+@RequestMapping("/api/v1/admin-user")
 @RequiredArgsConstructor
 public class AdminUserManagerController {
 

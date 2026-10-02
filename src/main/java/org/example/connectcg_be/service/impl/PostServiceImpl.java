@@ -15,6 +15,10 @@ import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -73,6 +77,23 @@ public class PostServiceImpl implements PostService {
 
     @Autowired
     private org.example.connectcg_be.service.PostRealtimeService postRealtimeService;
+
+    @Autowired(required = false)
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired(required = false)
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        if (this.transactionTemplate == null && transactionManager != null) {
+            this.transactionTemplate = new TransactionTemplate(transactionManager);
+        }
+    }
+
+    private <T> T executeInTransaction(TransactionCallback<T> action) {
+        if (transactionTemplate != null) {
+            return transactionTemplate.execute(action);
+        }
+        return action.doInTransaction(null);
+    }
 
     @Override
     public List<GroupPostDTO> getPendingPosts(Integer groupId, Integer userId) {
@@ -414,26 +435,14 @@ public class PostServiceImpl implements PostService {
     }
 
     @Override
-    @Transactional
     @Retryable(retryFor = CannotAcquireLockException.class, maxAttempts = 3, backoff = @Backoff(delay = 100))
     public Post createPost(CreatePostRequest request, Integer userId) {
         User author = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        Post post = new Post();
-        post.setAuthor(author);
-        post.setContent(request.getContent());
-        post.setVisibility(request.getVisibility() != null ? request.getVisibility() : "PUBLIC");
-        post.setCreatedAt(Instant.now());
-        post.setUpdatedAt(Instant.now());
-        post.setIsDeleted(false);
-        post.setCommentCount(0);
-        post.setReactCount(0);
-        post.setShareCount(0);
-
-        // Set group if provided
+        Group group = null;
         if (request.getGroupId() != null) {
-            Group group = groupRepository.findById(request.getGroupId())
+            group = groupRepository.findById(request.getGroupId())
                     .orElseThrow(() -> new RuntimeException("Group not found"));
 
             // SECURITY: Check if user is an ACCEPTED member or owner/admin of the group
@@ -447,75 +456,89 @@ public class PostServiceImpl implements PostService {
             if (!isMember && !group.getOwner().getId().equals(userId)) {
                 throw new RuntimeException("Bạn phải tham gia nhóm mới có thể đăng bài.");
             }
-
-            post.setGroup(group);
         }
 
-        // --- ADMIN & OWNER PRIVILEGE ---
-        // Website Admins, Group Owners, and Group Admins bypass moderation
-        boolean isPrivileged = isPrivilegedUser(author, post.getGroup());
+        String visibility = request.getVisibility() != null ? request.getVisibility() : "PUBLIC";
+        boolean isPrivileged = isPrivilegedUser(author, group);
+        boolean isPublic = "PUBLIC".equals(visibility);
+        boolean isGroup = group != null;
+        boolean shouldCheckAi = (isGroup || isPublic) && !isPrivileged;
 
-        // MODERATION SCOPE CHECK:
-        // 1. Group Posts: Always check (implied Public context)
-        // 2. Homepage Posts: Check ONLY if PUBLIC
-        boolean isPublic = "PUBLIC".equals(post.getVisibility());
-        boolean isGroup = post.getGroup() != null;
-        boolean shouldCheckAi = isGroup || isPublic;
+        AiModerationResult aiResult = null;
+        if (shouldCheckAi) {
+            aiResult = aiModerationService.checkPostContent(request.getContent());
+        }
 
-        // AI Moderation Logic with Simplified 0.6 threshold
-        if (!shouldCheckAi || isPrivileged) {
-            post.setStatus("APPROVED");
-            post.setAiStatus(isPrivileged ? "SAFE" : "NOT_CHECKED");
-            post.setAiScore(0.0);
-        } else {
-            AiModerationResult aiResult = aiModerationService.checkPostContent(request.getContent());
-            post.setCheckedAt(Instant.now());
-            post.setAiStatus(aiResult.getLabel());
-            post.setAiScore(aiResult.getScore());
-            post.setAiReason(aiResult.getReason());
+        final Group finalGroup = group;
+        final AiModerationResult finalAiResult = aiResult;
+        final boolean finalIsPrivileged = isPrivileged;
+        final boolean finalShouldCheckAi = shouldCheckAi;
 
-            // Unified threshold: < 0.6 is APPROVED, >= 0.6 is PENDING
-            // Note: Fail-Safe logic in AiModerationService returns 0.9 (PENDING) on
-            // error/toxic
-            if (aiResult.getScore() < 0.6) {
-                post.setStatus("APPROVED");
-            } else {
-                post.setStatus("PENDING");
+        return executeInTransaction(status -> {
+            Post post = new Post();
+            post.setAuthor(author);
+            post.setContent(request.getContent());
+            post.setVisibility(visibility);
+            post.setCreatedAt(Instant.now());
+            post.setUpdatedAt(Instant.now());
+            post.setIsDeleted(false);
+            post.setCommentCount(0);
+            post.setReactCount(0);
+            post.setShareCount(0);
+            if (finalGroup != null) {
+                post.setGroup(finalGroup);
             }
-        }
 
-        Post savedPost = postRepository.save(post);
-        attachMediaToPost(savedPost, request.getMediaUrls(), author);
+            // AI Moderation Logic with Simplified 0.6 threshold
+            if (!finalShouldCheckAi || finalIsPrivileged) {
+                post.setStatus("APPROVED");
+                post.setAiStatus(finalIsPrivileged ? "SAFE" : "NOT_CHECKED");
+                post.setAiScore(0.0);
+            } else {
+                post.setCheckedAt(Instant.now());
+                post.setAiStatus(finalAiResult.getLabel());
+                post.setAiScore(finalAiResult.getScore());
+                post.setAiReason(finalAiResult.getReason());
 
-        if ("APPROVED".equals(savedPost.getStatus())) {
-            GroupPostDTO dto = convertToDTO(savedPost, null);
-            PostEventDTO event = new PostEventDTO("CREATED", dto, savedPost.getId());
-            postRealtimeService.publishPostEvent(savedPost, event);
-        } else if ("PENDING".equals(savedPost.getStatus())) {
-            // Broadcast realtime for admins to see the new pending post
-            GroupPostDTO dto = convertToDTO(savedPost, null);
-            PostEventDTO event = new PostEventDTO("CREATED", dto, savedPost.getId());
-            postRealtimeService.publishPostEvent(savedPost, event);
+                // Unified threshold: < 0.6 is APPROVED, >= 0.6 is PENDING
+                if (finalAiResult.getScore() < 0.6) {
+                    post.setStatus("APPROVED");
+                } else {
+                    post.setStatus("PENDING");
+                }
+            }
 
-            TungNotificationDTO notifDto = new TungNotificationDTO();
-            notifDto.setContent("Bài viết của bạn đã được gửi và đang chờ quản trị viên phê duyệt.");
-            notifDto.setType("POST_PENDING");
-            notifDto.setTargetType("POST");
-            notifDto.setTargetId(savedPost.getId());
-            notificationService.sendNotification(notifDto, author);
-        }
-        return savedPost;
+            Post savedPost = postRepository.save(post);
+            attachMediaToPost(savedPost, request.getMediaUrls(), author);
+
+            if ("APPROVED".equals(savedPost.getStatus())) {
+                GroupPostDTO dto = convertToDTO(savedPost, null);
+                PostEventDTO event = new PostEventDTO("CREATED", dto, savedPost.getId());
+                postRealtimeService.publishPostEvent(savedPost, event);
+            } else if ("PENDING".equals(savedPost.getStatus())) {
+                // Broadcast realtime for admins to see the new pending post
+                GroupPostDTO dto = convertToDTO(savedPost, null);
+                PostEventDTO event = new PostEventDTO("CREATED", dto, savedPost.getId());
+                postRealtimeService.publishPostEvent(savedPost, event);
+
+                TungNotificationDTO notifDto = new TungNotificationDTO();
+                notifDto.setContent("Bài viết của bạn đã được gửi và đang chờ quản trị viên phê duyệt.");
+                notifDto.setType("POST_PENDING");
+                notifDto.setTargetType("POST");
+                notifDto.setTargetId(savedPost.getId());
+                notificationService.sendNotification(notifDto, author);
+            }
+            return savedPost;
+        });
     }
 
     @Override
-    @Transactional
     public GroupPostDTO createPostAndReturnDTO(CreatePostRequest request, Integer userId) {
         Post savedPost = createPost(request, userId);
         return convertToDTO(savedPost, userId);
     }
 
     @Override
-    @Transactional
     @Retryable(retryFor = CannotAcquireLockException.class, maxAttempts = 3, backoff = @Backoff(delay = 100))
     public Post updatePost(Integer postId, org.example.connectcg_be.dto.CreatePostRequest request, Integer userId) {
         Post post = postRepository.findById(postId)
@@ -530,81 +553,73 @@ public class PostServiceImpl implements PostService {
         String oldVisibility = post.getVisibility();
         boolean visibilityChanged = !oldVisibility.equals(request.getVisibility());
 
-        post.setContent(request.getContent());
-        post.setVisibility(request.getVisibility());
-        post.setUpdatedAt(Instant.now());
+        boolean isPrivileged = isPrivilegedUser(post.getAuthor(), post.getGroup());
+        boolean isPublic = "PUBLIC".equals(request.getVisibility());
+        boolean isGroup = post.getGroup() != null;
+        boolean shouldCheckAi = isGroup || isPublic;
+        boolean willCheckAi = (contentChanged || (visibilityChanged && "PUBLIC".equals(request.getVisibility())))
+                && !isPrivileged && shouldCheckAi;
 
-        // Trigger check if:
-        // 1. Content changed
-        // 2. Visibility changed to PUBLIC (might have been private/unchecked before)
-        // 3. Visibility changed to GROUP context (if we supported moving posts to
-        // groups, but here groupId doesn't change on update usually)
-        if (contentChanged || (visibilityChanged && "PUBLIC".equals(request.getVisibility()))) {
-            boolean isPrivileged = isPrivilegedUser(post.getAuthor(), post.getGroup());
+        AiModerationResult aiResult = null;
+        if (willCheckAi) {
+            aiResult = aiModerationService.checkPostContent(request.getContent());
+        }
 
-            // MODERATION SCOPE CHECK:
-            // 1. Group Posts: Always check (implied Public context)
-            // 2. Homepage Posts: Check ONLY if PUBLIC
-            boolean isPublic = "PUBLIC".equals(post.getVisibility());
-            boolean isGroup = post.getGroup() != null;
-            boolean shouldCheckAi = isGroup || isPublic;
+        final AiModerationResult finalAiResult = aiResult;
+        final boolean finalContentOrVisChanged = contentChanged || (visibilityChanged && "PUBLIC".equals(request.getVisibility()));
+        final boolean finalIsPrivileged = isPrivileged;
+        final boolean finalShouldCheckAi = shouldCheckAi;
+        final boolean finalWillCheckAi = willCheckAi;
 
-            if (isPrivileged || !shouldCheckAi) {
-                // Only auto-approve if we are sure it doesn't need checking
-                // If it was already PENDING/TOXIC, we should probably keep it?
-                // But if scope says "Don't Check", then it is safe to Approve (e.g. became
-                // Private)
-                post.setStatus("APPROVED");
-                post.setAiStatus(isPrivileged ? "SAFE" : "NOT_CHECKED");
-                post.setAiScore(0.0);
-            } else {
-                // Re-trigger AI Moderation
-                // Only check if content changed OR if it was previously unchecked/unknown
-                // If content IS SAME, and we already checked it (e.g. was Public SAFE, stayed
-                // Public), we could skip.
-                // But for safety/simplicity, if it became Public, we check.
+        return executeInTransaction(status -> {
+            post.setContent(request.getContent());
+            post.setVisibility(request.getVisibility());
+            post.setUpdatedAt(Instant.now());
 
-                // Opt: If content same and already Safe, skip?
-                // Let's just check to be safe and simple.
-                AiModerationResult aiResult = aiModerationService.checkPostContent(request.getContent());
-                post.setCheckedAt(Instant.now());
-                post.setAiStatus(aiResult.getLabel());
-                post.setAiScore(aiResult.getScore());
-                post.setAiReason(aiResult.getReason());
-
-                // Reset approver
-                post.setApprovedBy(null);
-
-                // Unified 0.6 threshold
-                if (aiResult.getScore() < 0.6) {
+            if (finalContentOrVisChanged) {
+                if (finalIsPrivileged || !finalShouldCheckAi) {
                     post.setStatus("APPROVED");
-                } else {
-                    post.setStatus("PENDING");
+                    post.setAiStatus(finalIsPrivileged ? "SAFE" : "NOT_CHECKED");
+                    post.setAiScore(0.0);
+                } else if (finalWillCheckAi && finalAiResult != null) {
+                    post.setCheckedAt(Instant.now());
+                    post.setAiStatus(finalAiResult.getLabel());
+                    post.setAiScore(finalAiResult.getScore());
+                    post.setAiReason(finalAiResult.getReason());
+                    post.setApprovedBy(null);
+
+                    // Unified 0.6 threshold
+                    if (finalAiResult.getScore() < 0.6) {
+                        post.setStatus("APPROVED");
+                    } else {
+                        post.setStatus("PENDING");
+                    }
                 }
             }
-        }
 
-        Post savedPost = postRepository.save(post);
-        attachMediaToPost(savedPost, request.getMediaUrls(), savedPost.getAuthor());
+            Post savedPost = postRepository.save(post);
+            attachMediaToPost(savedPost, request.getMediaUrls(), savedPost.getAuthor());
 
-        if ("APPROVED".equals(savedPost.getStatus())) {
-            GroupPostDTO dto = convertToDTO(savedPost, null);
-            PostEventDTO event = new PostEventDTO("UPDATED", dto, savedPost.getId());
-            postRealtimeService.publishPostEvent(savedPost, event);
-        } else if ("PENDING".equals(savedPost.getStatus())) {
-            // Broadcast realtime for admins to see the pending update
-            GroupPostDTO dto = convertToDTO(savedPost, null);
-            PostEventDTO event = new PostEventDTO("UPDATED", dto, savedPost.getId());
-            postRealtimeService.publishPostEvent(savedPost, event);
+            if ("APPROVED".equals(savedPost.getStatus())) {
+                GroupPostDTO dto = convertToDTO(savedPost, null);
+                PostEventDTO event = new PostEventDTO("UPDATED", dto, savedPost.getId());
+                postRealtimeService.publishPostEvent(savedPost, event);
+            } else if ("PENDING".equals(savedPost.getStatus())) {
+                // Broadcast realtime for admins to see the pending update
+                GroupPostDTO dto = convertToDTO(savedPost, null);
+                PostEventDTO event = new PostEventDTO("UPDATED", dto, savedPost.getId());
+                postRealtimeService.publishPostEvent(savedPost, event);
 
-            TungNotificationDTO notifDto = new TungNotificationDTO();
-            notifDto.setContent("Bài viết (chỉnh sửa) của bạn đang chờ kiểm duyệt lại.");
-            notifDto.setType("POST_PENDING");
-            notifDto.setTargetType("POST");
-            notifDto.setTargetId(savedPost.getId());
-            notificationService.sendNotification(notifDto, savedPost.getAuthor());
-        }
-        return savedPost;
+                TungNotificationDTO notifDto = new TungNotificationDTO();
+                notifDto.setContent("Bài viết (chỉnh sửa) của bạn đang chờ kiểm duyệt lại.");
+                notifDto.setType("POST_PENDING");
+                notifDto.setTargetType("POST");
+                notifDto.setTargetId(savedPost.getId());
+                notificationService.sendNotification(notifDto, savedPost.getAuthor());
+            }
+
+            return savedPost;
+        });
     }
 
     @Transactional
@@ -789,14 +804,14 @@ public class PostServiceImpl implements PostService {
     }
 
     @Override
+    @Retryable(retryFor = CannotAcquireLockException.class, maxAttempts = 3, backoff = @Backoff(delay = 100))
     public GroupPostDTO sharePost(Integer originalPostId, CreatePostRequest request, Integer userId) {
         Post originalPost = postRepository.findById(originalPostId)
                 .orElseThrow(() -> new RuntimeException("Bài viết gốc không tồn tại"));
         postAccessPolicy.requireCanView(originalPost, userId);
 
         // Nếu bài viết này là bài share, thì lấy bài gốc thực sự (root post) của nó.
-        // Luôn đi tìm bài viết gốc cuối cùng để bài share luôn được gắn vào bài gốc
-        // thật sự.
+        // Luôn đi tìm bài viết gốc cuối cùng để bài share luôn được gắn vào bài gốc thật sự.
         while (originalPost.getOriginalPost() != null) {
             originalPost = originalPost.getOriginalPost();
         }
@@ -805,76 +820,86 @@ public class PostServiceImpl implements PostService {
         User author = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng này"));
 
-        Post newPost = new Post();
-        newPost.setAuthor(author);
-        newPost.setContent(request.getContent()); // Caption của người share
-        newPost.setOriginalPost(originalPost); // Link tới bài gốc
-        newPost.setVisibility(request.getVisibility() != null ? request.getVisibility() : "PUBLIC");
-        newPost.setCreatedAt(Instant.now());
-        newPost.setUpdatedAt(Instant.now());
-        newPost.setIsDeleted(false);
-        newPost.setReactCount(0);
-        newPost.setCommentCount(0);
-        newPost.setShareCount(0);
-
+        Group group = null;
         if (request.getGroupId() != null) {
-            Group group = groupRepository.findById(request.getGroupId())
+            Group foundGroup = groupRepository.findById(request.getGroupId())
                     .orElseThrow(() -> new RuntimeException("Group not found"));
 
             // SECURITY: Check if user is an ACCEPTED member or owner/admin of the group
             GroupMemberId memberId = new GroupMemberId();
-            memberId.setGroupId(group.getId());
+            memberId.setGroupId(foundGroup.getId());
             memberId.setUserId(userId);
             boolean isMember = groupMemberRepository.findById(memberId)
                     .map(m -> "ACCEPTED".equals(m.getStatus()))
                     .orElse(false);
 
-            if (!isMember && !group.getOwner().getId().equals(userId)) {
+            if (!isMember && !foundGroup.getOwner().getId().equals(userId)) {
                 throw new RuntimeException("Bạn phải tham gia nhóm mới có thể đăng bài.");
             }
 
-            newPost.setGroup(group);
+            group = foundGroup;
         }
 
+        // Call AI moderation outside transaction to prevent holding DB connections
         AiModerationResult aiResult = aiModerationService.checkPostContent(request.getContent());
-        newPost.setCheckedAt(Instant.now());
-        newPost.setAiStatus(aiResult.getLabel());
-        newPost.setAiScore(aiResult.getScore());
-        newPost.setAiReason(aiResult.getReason());
 
-        // Unified threshold: < 0.6 is APPROVED, >= 0.6 is PENDING
-        // Note: Fail-Safe logic in AiModerationService returns 0.9 (PENDING) on
-        // error/toxic
-        if (aiResult.getScore() < 0.6) {
-            newPost.setStatus("APPROVED");
-        } else {
-            newPost.setStatus("PENDING");
-        }
+        final Post targetOriginalPost = originalPost;
+        final Group finalGroup = group;
+        final AiModerationResult finalAiResult = aiResult;
 
-        Post savedPost = postRepository.save(newPost);
-
-        int shareCount = Math.toIntExact(
-                postRepository.countByOriginalPostIdAndIsDeletedFalse(originalPost.getId()));
-        postRepository.updateShareCount(originalPost.getId(), shareCount);
-        originalPost.setShareCount(shareCount);
-
-        // Broadcast realtime update cho bài gốc (để cập nhật lượt share)
-        GroupPostDTO originalDto = convertToDTO(originalPost, userId);
-        PostEventDTO shareUpdateEvent = new PostEventDTO("UPDATED", originalDto, originalPost.getId());
-        postRealtimeService.publishPostEvent(originalPost, shareUpdateEvent);
-
-        if (!originalPost.getAuthor().getId().equals(userId)) {
-            TungNotificationDTO notif = new TungNotificationDTO();
-            notif.setContent("đã chia sẻ bài viết của bạn.");
-            notif.setType("POST_SHARED");
-            notif.setTargetType("POST");
-            notif.setTargetId(newPost.getId());
-            try {
-                notificationService.sendNotification(notif, author, originalPost.getAuthor()); // From, To
-            } catch (Exception e) {
-                // ignore notification error
+        return executeInTransaction(status -> {
+            Post newPost = new Post();
+            newPost.setAuthor(author);
+            newPost.setContent(request.getContent()); // Caption của người share
+            newPost.setOriginalPost(targetOriginalPost); // Link tới bài gốc
+            newPost.setVisibility(request.getVisibility() != null ? request.getVisibility() : "PUBLIC");
+            newPost.setCreatedAt(Instant.now());
+            newPost.setUpdatedAt(Instant.now());
+            newPost.setIsDeleted(false);
+            newPost.setReactCount(0);
+            newPost.setCommentCount(0);
+            newPost.setShareCount(0);
+            if (finalGroup != null) {
+                newPost.setGroup(finalGroup);
             }
-        }
-        return convertToDTO(savedPost, userId);
+
+            newPost.setCheckedAt(Instant.now());
+            newPost.setAiStatus(finalAiResult.getLabel());
+            newPost.setAiScore(finalAiResult.getScore());
+            newPost.setAiReason(finalAiResult.getReason());
+
+            // Unified threshold: < 0.6 is APPROVED, >= 0.6 is PENDING
+            if (finalAiResult.getScore() < 0.6) {
+                newPost.setStatus("APPROVED");
+            } else {
+                newPost.setStatus("PENDING");
+            }
+
+            Post savedPost = postRepository.save(newPost);
+
+            int shareCount = Math.toIntExact(
+                    postRepository.countByOriginalPostIdAndIsDeletedFalse(targetOriginalPost.getId()));
+            postRepository.updateShareCount(targetOriginalPost.getId(), shareCount);
+            targetOriginalPost.setShareCount(shareCount);
+
+            // Broadcast realtime update cho bài gốc (để cập nhật lượt share)
+            GroupPostDTO originalDto = convertToDTO(targetOriginalPost, userId);
+            PostEventDTO shareUpdateEvent = new PostEventDTO("UPDATED", originalDto, targetOriginalPost.getId());
+            postRealtimeService.publishPostEvent(targetOriginalPost, shareUpdateEvent);
+
+            if (!targetOriginalPost.getAuthor().getId().equals(userId)) {
+                TungNotificationDTO notif = new TungNotificationDTO();
+                notif.setContent("đã chia sẻ bài viết của bạn.");
+                notif.setType("POST_SHARED");
+                notif.setTargetType("POST");
+                notif.setTargetId(newPost.getId());
+                try {
+                    notificationService.sendNotification(notif, author, targetOriginalPost.getAuthor()); // From, To
+                } catch (Exception e) {
+                    // ignore notification error
+                }
+            }
+            return convertToDTO(savedPost, userId);
+        });
     }
 }

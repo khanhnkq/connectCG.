@@ -38,6 +38,7 @@ out/
 
 ### Custom Ignore ###
 docs/
+!docs/DISASTER_RECOVERY.md
 
 .env
 .env.production

@@ -69,6 +69,63 @@ class WebSocketAuthInterceptorTest {
         assertDoesNotThrow(() -> interceptor.preSend(message, mockChannel()));
     }
 
+    @Test
+    void subscribeWithRevokedTokenIsRejected() {
+        org.example.connectcg_be.security.AccessTokenRevocationService revocationService =
+                mock(org.example.connectcg_be.security.AccessTokenRevocationService.class);
+        org.example.connectcg_be.security.JwtTokenProvider tokenProvider =
+                mock(org.example.connectcg_be.security.JwtTokenProvider.class);
+        WebSocketAuthInterceptor securedInterceptor =
+                new WebSocketAuthInterceptor(authorizationService, revocationService, tokenProvider);
+
+        UserPrincipal user = mock(UserPrincipal.class);
+        when(user.getId()).thenReturn(7);
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(user, null, List.of());
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        accessor.setUser(authentication);
+        accessor.setDestination("/topic/posts");
+        accessor.setSessionAttributes(new java.util.HashMap<>(Map.of(
+                HttpPrincipalHandshakeInterceptor.ACCESS_TOKEN_ATTRIBUTE, "revoked-token"
+        )));
+        accessor.setLeaveMutable(true);
+        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        when(tokenProvider.validateToken("revoked-token")).thenReturn(true);
+        when(revocationService.isRevoked("revoked-token")).thenReturn(true);
+
+        assertThrows(AccessDeniedException.class, () -> securedInterceptor.preSend(message, mockChannel()));
+    }
+
+    @Test
+    void subscribeWithExpiredTokenIsRejected() {
+        org.example.connectcg_be.security.AccessTokenRevocationService revocationService =
+                mock(org.example.connectcg_be.security.AccessTokenRevocationService.class);
+        org.example.connectcg_be.security.JwtTokenProvider tokenProvider =
+                mock(org.example.connectcg_be.security.JwtTokenProvider.class);
+        WebSocketAuthInterceptor securedInterceptor =
+                new WebSocketAuthInterceptor(authorizationService, revocationService, tokenProvider);
+
+        UserPrincipal user = mock(UserPrincipal.class);
+        when(user.getId()).thenReturn(7);
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(user, null, List.of());
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        accessor.setUser(authentication);
+        accessor.setDestination("/topic/posts");
+        accessor.setSessionAttributes(new java.util.HashMap<>(Map.of(
+                HttpPrincipalHandshakeInterceptor.ACCESS_TOKEN_ATTRIBUTE, "expired-token"
+        )));
+        accessor.setLeaveMutable(true);
+        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        when(tokenProvider.validateToken("expired-token")).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class, () -> securedInterceptor.preSend(message, mockChannel()));
+    }
+
     private Message<byte[]> message(StompCommand command, UsernamePasswordAuthenticationToken user, String destination) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
         accessor.setUser(user);

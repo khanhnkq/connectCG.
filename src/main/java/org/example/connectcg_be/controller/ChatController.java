@@ -17,7 +17,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 
 // Chat Controller handles room metadata
 @RestController
-@RequestMapping("/api/chat")
+@RequestMapping("/api/v1/chat")
 public class ChatController {
 
         @Autowired

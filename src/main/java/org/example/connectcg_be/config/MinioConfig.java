@@ -11,9 +11,14 @@ public class MinioConfig {
 
     @Bean
     public MinioClient minioClient(MinioStorageProperties properties) {
-        return MinioClient.builder()
+        var builder = MinioClient.builder()
                 .endpoint(properties.getEndpoint())
-                .credentials(properties.getAccessKey(), properties.getSecretKey())
-                .build();
+                .credentials(properties.getAccessKey(), properties.getSecretKey());
+
+        if (properties.getRegion() != null && !properties.getRegion().isBlank()) {
+            builder.region(properties.getRegion());
+        }
+
+        return builder.build();
     }
 }

@@ -26,6 +26,24 @@ public enum MediaCategory {
         return videoAllowed;
     }
 
+    public boolean isPublic() {
+        return this == AVATAR || this == COVER;
+    }
+
+    public static MediaCategory fromObjectKey(String objectKey) {
+        if (objectKey == null || objectKey.isBlank()) {
+            return null;
+        }
+        int slashIndex = objectKey.indexOf('/');
+        String prefix = slashIndex > 0 ? objectKey.substring(0, slashIndex) : objectKey;
+        for (MediaCategory cat : values()) {
+            if (cat.path.equalsIgnoreCase(prefix)) {
+                return cat;
+            }
+        }
+        return null;
+    }
+
     public static MediaCategory from(String value) {
         if (value == null) {
             throw new MediaValidationException("Category là bắt buộc");

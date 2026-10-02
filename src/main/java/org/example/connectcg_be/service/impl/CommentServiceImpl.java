@@ -21,6 +21,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
 
+import java.util.Collections;
+import java.util.stream.Collectors;
+
 @Service
 public class CommentServiceImpl implements CommentService {
 
@@ -47,24 +50,37 @@ public class CommentServiceImpl implements CommentService {
     private org.example.connectcg_be.service.PostRealtimeService postRealtimeService;
 
     private CommentDTO convertToDTO(Comment comment) {
+        return convertToDTO(comment, Collections.emptyMap(), Collections.emptyMap());
+    }
+
+    private CommentDTO convertToDTO(Comment comment, Map<Integer, String> authorNameMap, Map<Integer, String> authorAvatarMap) {
         CommentDTO dto = new CommentDTO();
         dto.setId(comment.getId());
         dto.setContent(comment.getContent());
         dto.setCreatedAt(comment.getCreatedAt());
-        dto.setAuthorId(comment.getAuthor().getId());
+        Integer authorId = comment.getAuthor().getId();
+        dto.setAuthorId(authorId);
 
         // Lấy tên
-        dto.setAuthorName(comment.getAuthor().getUsername());
-        userProfileRepository.findByUserId(comment.getAuthor().getId())
-                .ifPresent(p -> dto.setAuthorName(p.getFullName()));
+        if (authorNameMap.containsKey(authorId)) {
+            dto.setAuthorName(authorNameMap.get(authorId));
+        } else {
+            dto.setAuthorName(comment.getAuthor().getUsername());
+            userProfileRepository.findByUserId(authorId)
+                    .ifPresent(p -> dto.setAuthorName(p.getFullName()));
+        }
 
         // Lấy avatar
-        UserAvatar avatar = userAvatarRepository
-                .findByUserIdAndIsCurrentTrue(comment.getAuthor().getId());
-        if (avatar != null && avatar.getMedia() != null) {
-            dto.setAuthorAvatar(avatar.getMedia().getUrl());
+        if (authorAvatarMap.containsKey(authorId)) {
+            dto.setAuthorAvatar(authorAvatarMap.get(authorId));
         } else {
-            dto.setAuthorAvatar("https://cdn-icons-png.flaticon.com/512/149/149071.png");
+            UserAvatar avatar = userAvatarRepository
+                    .findByUserIdAndIsCurrentTrue(authorId);
+            if (avatar != null && avatar.getMedia() != null) {
+                dto.setAuthorAvatar(avatar.getMedia().getUrl());
+            } else {
+                dto.setAuthorAvatar("https://cdn-icons-png.flaticon.com/512/149/149071.png");
+            }
         }
 
         dto.setParentId(comment.getParent() != null ? comment.getParent().getId() : null);
@@ -94,11 +110,32 @@ public class CommentServiceImpl implements CommentService {
         postAccessPolicy.requireCanView(post, userId);
         List<Comment> allComments = commentRepository
                 .findByPostIdAndIsDeletedFalseOrderByCreatedAtDesc(postId);
+
+        Set<Integer> authorIds = allComments.stream()
+                .map(c -> c.getAuthor().getId())
+                .collect(Collectors.toSet());
+
+        Map<Integer, String> authorNameMap = new HashMap<>();
+        Map<Integer, String> authorAvatarMap = new HashMap<>();
+
+        if (!authorIds.isEmpty()) {
+            userProfileRepository.findAllByUserIdIn(authorIds).forEach(p -> {
+                if (p.getUser() != null && p.getFullName() != null) {
+                    authorNameMap.put(p.getUser().getId(), p.getFullName());
+                }
+            });
+            userAvatarRepository.findCurrentByUserIds(authorIds).forEach(ua -> {
+                if (ua.getUser() != null && ua.getMedia() != null) {
+                    authorAvatarMap.put(ua.getUser().getId(), ua.getMedia().getUrl());
+                }
+            });
+        }
+
         Map<Integer, CommentDTO> dtoMap = new HashMap<>();
         List<CommentDTO> rootComments = new ArrayList<>();
         // convert toan bo comment sang dto
         for (Comment c : allComments) {
-            CommentDTO dto = convertToDTO(c);
+            CommentDTO dto = convertToDTO(c, authorNameMap, authorAvatarMap);
             dtoMap.put(c.getId(), dto);
         }
         // bat dau build tree comment
@@ -144,7 +181,7 @@ public class CommentServiceImpl implements CommentService {
                 .orElse(commenter.getUsername());
 
         if (request.getParentId() != null) {
-            Comment parent = commentRepository.findById(request.getParentId())
+            Comment parent = commentRepository.findByIdForUpdate(request.getParentId())
                     .orElseThrow(() -> new RuntimeException("Không tìm thấy comment cha"));
             if (parent.getPost() == null || !postId.equals(parent.getPost().getId())) {
                 throw new RuntimeException("Comment cha không thuộc bài viết này");
@@ -209,8 +246,9 @@ public class CommentServiceImpl implements CommentService {
 
         // The publisher schedules durable events after the transaction commits.
         CommentDTO dto = convertToDTO(saved);
-        int newCommentCount = Math.toIntExact(commentRepository.countByPostIdAndIsDeletedFalse(postId));
-        postRepository.updateCommentCount(postId, newCommentCount);
+        postRepository.adjustCommentCount(postId, 1);
+        Integer updatedCount = postRepository.findCommentCountById(postId);
+        int newCommentCount = updatedCount != null ? updatedCount : 0;
         CommentEventDTO event = new CommentEventDTO("CREATED", postId, dto, saved.getId(), newCommentCount);
         postRealtimeService.publishCommentEvent(post, event);
 
@@ -220,7 +258,7 @@ public class CommentServiceImpl implements CommentService {
     @Override
     @Transactional
     public void deleteComment(Integer postId, Integer commentId, Integer userId) {
-        Comment comment = commentRepository.findById(commentId)
+        Comment comment = commentRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy comment"));
         if (comment.getPost() == null || !postId.equals(comment.getPost().getId())) {
             throw new RuntimeException("Comment không thuộc bài viết này");
@@ -249,8 +287,10 @@ public class CommentServiceImpl implements CommentService {
         // Lấy post để lấy thông tin cho broadcast
         Post post = comment.getPost();
 
-        int newCommentCount = Math.toIntExact(commentRepository.countByPostIdAndIsDeletedFalse(postId));
-        postRepository.updateCommentCount(post.getId(), newCommentCount);
+        int countDeleted = deletedIds.size();
+        postRepository.adjustCommentCount(post.getId(), -countDeleted);
+        Integer updatedCount = postRepository.findCommentCountById(post.getId());
+        int newCommentCount = updatedCount != null ? updatedCount : 0;
 
         // The publisher schedules durable events after the transaction commits.
         CommentEventDTO event = new CommentEventDTO("DELETED", postId, null, commentId, newCommentCount);

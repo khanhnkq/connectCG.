@@ -4,9 +4,11 @@ import org.example.connectcg_be.dto.AiModerationResult;
 import org.example.connectcg_be.service.AiModerationService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
 import java.util.*;
 
 @Service
@@ -27,7 +29,14 @@ public class OpenRouterServiceImpl implements AiModerationService {
     @Value("${openrouter.site.name:ConnectCG}")
     private String siteName;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public OpenRouterServiceImpl() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(5));
+        factory.setReadTimeout(Duration.ofSeconds(15));
+        this.restTemplate = new RestTemplate(factory);
+    }
 
     @Override
     public AiModerationResult checkPostContent(String content) {

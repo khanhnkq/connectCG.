@@ -15,4 +15,8 @@ public interface CommentRepository extends JpaRepository<Comment, Integer> {
 
     // Đếm số comment của 1 bài viết
     long countByPostIdAndIsDeletedFalse(Integer postId);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("SELECT c FROM Comment c WHERE c.id = :id")
+    java.util.Optional<Comment> findByIdForUpdate(@org.springframework.data.repository.query.Param("id") Integer id);
 }

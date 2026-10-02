@@ -16,9 +16,20 @@ import java.util.Map;
 public class WebSocketAuthInterceptor implements ChannelInterceptor {
 
     private final WebSocketAuthorizationService authorizationService;
+    private final org.example.connectcg_be.security.AccessTokenRevocationService revocationService;
+    private final org.example.connectcg_be.security.JwtTokenProvider tokenProvider;
 
     public WebSocketAuthInterceptor(WebSocketAuthorizationService authorizationService) {
+        this(authorizationService, null, null);
+    }
+
+    public WebSocketAuthInterceptor(
+            WebSocketAuthorizationService authorizationService,
+            org.example.connectcg_be.security.AccessTokenRevocationService revocationService,
+            org.example.connectcg_be.security.JwtTokenProvider tokenProvider) {
         this.authorizationService = authorizationService;
+        this.revocationService = revocationService;
+        this.tokenProvider = tokenProvider;
     }
 
     @Override
@@ -31,8 +42,10 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
         if (StompCommand.CONNECT.equals(accessor.getCommand())) {
             authenticate(accessor);
         } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+            validateSessionNotRevoked(accessor);
             authorizeSubscribe(accessor);
         } else if (StompCommand.SEND.equals(accessor.getCommand())) {
+            validateSessionNotRevoked(accessor);
             authorizeSend(accessor);
         }
         return message;
@@ -44,6 +57,38 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
             throw new AccessDeniedException("A valid access token is required");
         }
         accessor.setUser(authentication);
+
+        String authHeader = accessor.getFirstNativeHeader("Authorization");
+        String token = null;
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7);
+        } else if (accessor.getFirstNativeHeader("access_token") != null) {
+            token = accessor.getFirstNativeHeader("access_token");
+        }
+        if (token != null && accessor.getSessionAttributes() != null) {
+            accessor.getSessionAttributes().put(HttpPrincipalHandshakeInterceptor.ACCESS_TOKEN_ATTRIBUTE, token);
+        }
+
+        validateSessionNotRevoked(accessor);
+    }
+
+    private void validateSessionNotRevoked(StompHeaderAccessor accessor) {
+        if (revocationService == null || tokenProvider == null) {
+            return;
+        }
+
+        Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
+        if (sessionAttributes != null) {
+            String token = (String) sessionAttributes.get(HttpPrincipalHandshakeInterceptor.ACCESS_TOKEN_ATTRIBUTE);
+            if (token != null) {
+                if (!tokenProvider.validateToken(token)) {
+                    throw new AccessDeniedException("Access token expired or invalid");
+                }
+                if (revocationService.isRevoked(token)) {
+                    throw new AccessDeniedException("Session has been revoked");
+                }
+            }
+        }
     }
 
     private void authorizeSubscribe(StompHeaderAccessor accessor) {

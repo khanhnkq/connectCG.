@@ -25,19 +25,23 @@ public class ChatWebSocketController {
     @MessageMapping("/chat/typing")
     public void handleTyping(TypingEventDTO event, Principal principal) {
         UserPrincipal currentUser = resolveUser(principal);
-        if (event == null || event.getFirebaseRoomKey() == null || currentUser == null
-                || !authorizationService.canAccessChat(currentUser.getId(), event.getFirebaseRoomKey())) {
+        if (event == null || event.getFirebaseRoomKey() == null || currentUser == null) {
+            throw new AccessDeniedException("You are not a member of this chat");
+        }
+
+        // Rate limit BEFORE any database queries to prevent connection pool exhaustion
+        String rateLimitKey = (event.isTyping() ? "websocket-typing:" : "websocket-typing-stop:") + currentUser.getId();
+        if (!inMemoryRateLimiter.acquire(rateLimitKey, RateLimitPolicy.WEBSOCKET_TYPING).allowed()) {
+            return;
+        }
+
+        if (!authorizationService.canAccessChat(currentUser.getId(), event.getFirebaseRoomKey())) {
             throw new AccessDeniedException("You are not a member of this chat");
         }
         event.setUserId(currentUser.getId());
         event.setFullName(userProfileRepository.findByUserId(currentUser.getId())
                 .map(profile -> profile.getFullName())
                 .orElse(currentUser.getUsername()));
-        if (event.isTyping() && !inMemoryRateLimiter
-                .acquire("websocket-typing:" + currentUser.getId(), RateLimitPolicy.WEBSOCKET_TYPING)
-                .allowed()) {
-            return;
-        }
         realtimeEventPublisher.sendEphemeralToTopic(
                 "/topic/chat/" + event.getFirebaseRoomKey() + "/typing",
                 event);

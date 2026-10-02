@@ -60,4 +60,8 @@ public class ChatRoom {
     @Column(name = "created_at")
     private Instant createdAt;
 
+    @Size(max = 100)
+    @Column(name = "canonical_pair_key", length = 100)
+    private String canonicalPairKey;
+
 }

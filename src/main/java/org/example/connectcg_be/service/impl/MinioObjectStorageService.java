@@ -7,6 +7,7 @@ import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.SetBucketPolicyArgs;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.example.connectcg_be.config.MinioStorageProperties;
 import org.example.connectcg_be.service.ObjectStorageService;
 import org.example.connectcg_be.service.StorageException;
@@ -18,6 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class MinioObjectStorageService implements ObjectStorageService {
     private final MinioClient minioClient;
     private final MinioStorageProperties properties;
@@ -51,6 +53,19 @@ public class MinioObjectStorageService implements ObjectStorageService {
         }
     }
 
+    @Override
+    public InputStream load(String objectKey) {
+        try {
+            return minioClient.getObject(io.minio.GetObjectArgs.builder()
+                    .bucket(properties.getBucket())
+                    .object(objectKey)
+                    .build());
+        } catch (Exception exception) {
+            log.error("Failed to load object {} from bucket {}: {}", objectKey, properties.getBucket(), exception.getMessage());
+            throw new StorageException("Không thể đọc media từ object storage", exception);
+        }
+    }
+
     private synchronized void ensureBucketReady() {
         if (bucketReady.get()) return;
         try {
@@ -60,24 +75,32 @@ public class MinioObjectStorageService implements ObjectStorageService {
             if (!exists) {
                 minioClient.makeBucket(MakeBucketArgs.builder().bucket(properties.getBucket()).build());
             }
-            minioClient.setBucketPolicy(SetBucketPolicyArgs.builder()
-                    .bucket(properties.getBucket())
-                    .config(publicReadPolicy(properties.getBucket()))
-                    .build());
+            try {
+                minioClient.setBucketPolicy(SetBucketPolicyArgs.builder()
+                        .bucket(properties.getBucket())
+                        .config(publicReadPolicy(properties.getBucket()))
+                        .build());
+            } catch (Exception ignored) {
+                // S3 providers like Garage manage public access via bucket website rather than bucket policies
+            }
             bucketReady.set(true);
         } catch (Exception exception) {
+            log.error("ensureBucketReady failed for bucket {}: {}", properties.getBucket(), exception.getMessage(), exception);
             throw new StorageException("Không thể khởi tạo MinIO bucket", exception);
         }
     }
 
     private String publicUrl(String objectKey) {
         String base = properties.getPublicUrl().replaceAll("/+$", "");
-        return base + "/" + properties.getBucket() + "/" + objectKey;
+        if (base.contains("/api/v1/media/view")) {
+            return base + "/" + objectKey;
+        }
+        return base + "/api/v1/media/view/" + objectKey;
     }
 
     private String publicReadPolicy(String bucket) {
         return """
-                {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::%s/*"]}]}
-                """.formatted(bucket).trim();
+                {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::%s/avatar/*","arn:aws:s3:::%s/cover/*"]}]}
+                """.formatted(bucket, bucket).trim();
     }
 }

@@ -73,7 +73,7 @@ class CommentP1BusinessRulesTest {
         when(postRepository.findById(10)).thenReturn(Optional.of(targetPost));
         when(userRepository.findById(2)).thenReturn(Optional.of(commenter));
         when(userProfileRepository.findByUserId(2)).thenReturn(Optional.empty());
-        when(commentRepository.findById(30)).thenReturn(Optional.of(parent));
+        when(commentRepository.findByIdForUpdate(30)).thenReturn(Optional.of(parent));
 
         assertThrows(RuntimeException.class, () -> commentService.createComment(10, 2, request));
         verify(commentRepository, never()).save(any(Comment.class));

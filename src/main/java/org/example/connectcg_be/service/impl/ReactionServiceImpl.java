@@ -93,8 +93,15 @@ public class ReactionServiceImpl implements ReactionService {
         }
 
         // Broadcast realtime
-        int newCount = Math.toIntExact(reactionRepository.countByPostId(postId));
-        postRepository.updateReactCount(postId, newCount);
+        int newCount;
+        if (existingReaction.isEmpty()) {
+            postRepository.adjustReactCount(postId, 1);
+            Integer updatedCount = postRepository.findReactCountById(postId);
+            newCount = updatedCount != null ? updatedCount : (post.getReactCount() != null ? post.getReactCount() + 1 : 1);
+        } else {
+            Integer currentCount = postRepository.findReactCountById(postId);
+            newCount = currentCount != null ? currentCount : (post.getReactCount() != null ? post.getReactCount() : 0);
+        }
         ReactionEventDTO event = new ReactionEventDTO("REACTED", postId, userId, type, newCount);
         postRealtimeService.publishReactionEvent(post, event);
     }
@@ -109,9 +116,10 @@ public class ReactionServiceImpl implements ReactionService {
         if (reactionRepository.existsById(id)) {
             reactionRepository.deleteById(id);
 
-            // Broadcast realtime
-            int newCount = Math.toIntExact(reactionRepository.countByPostId(postId));
-            postRepository.updateReactCount(postId, newCount);
+            // Broadcast realtime with atomic decrement
+            postRepository.adjustReactCount(postId, -1);
+            Integer updatedCount = postRepository.findReactCountById(postId);
+            int newCount = updatedCount != null ? updatedCount : 0;
             ReactionEventDTO event = new ReactionEventDTO("UNREACTED", postId, userId, null, newCount);
             postRealtimeService.publishReactionEvent(post, event);
         }

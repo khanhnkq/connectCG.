@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/chat/keys")
+@RequestMapping("/api/v1/chat/keys")
 public class UserPublicKeyController {
 
     @Autowired

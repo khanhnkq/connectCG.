@@ -11,7 +11,7 @@ import java.util.Map;
 
 @Component
 public class MediaFileValidator {
-    private static final long IMAGE_LIMIT = 5L * 1024 * 1024;
+    private static final long IMAGE_LIMIT = 15L * 1024 * 1024;
     private static final long VIDEO_LIMIT = 50L * 1024 * 1024;
     private static final Map<String, String> EXTENSIONS = Map.of(
             "image/jpeg", "jpg",
@@ -36,7 +36,7 @@ public class MediaFileValidator {
         if (file.getSize() > limit) {
             throw new MediaValidationException(video
                     ? "Video vượt quá giới hạn 50 MB"
-                    : "Ảnh vượt quá giới hạn 5 MB");
+                    : "Ảnh vượt quá giới hạn 15 MB");
         }
 
         String detectedType = detectContentType(file);

@@ -8,9 +8,9 @@ import java.util.List;
 public interface NotificationService {
     List<TungNotificationDTO> getMyNotifications(Integer userId);
 
-    void markAsRead(Integer notificationId);
+    void markAsRead(Integer notificationId, Integer userId);
 
-    void deleteNotification(Integer notificationId);
+    void deleteNotification(Integer notificationId, Integer userId);
 
     @Transactional
     void sendNotification(TungNotificationDTO dto, org.example.connectcg_be.entity.User receiver);

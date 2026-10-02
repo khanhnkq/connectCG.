@@ -12,7 +12,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/hobbies")
+@RequestMapping("/api/v1/hobbies")
 public class HobbyController {
 
     @Autowired

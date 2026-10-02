@@ -11,19 +11,24 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 @Primary
 @Service
 public class GeminiAiServiceImpl implements AiModerationService {
 
     private static final Logger logger = LoggerFactory.getLogger(GeminiAiServiceImpl.class);
+    private static final Semaphore GEMINI_SEMAPHORE = new Semaphore(2);
 
     @Value("${gemini.api.key:}")
     private String apiKey;
@@ -43,7 +48,14 @@ public class GeminiAiServiceImpl implements AiModerationService {
 
     @Autowired
     public GeminiAiServiceImpl(GeminiModerationCache moderationCache) {
-        this(moderationCache, new RestTemplate(), new ObjectMapper());
+        this(moderationCache, createDefaultRestTemplate(), new ObjectMapper());
+    }
+
+    private static RestTemplate createDefaultRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(5));
+        factory.setReadTimeout(Duration.ofSeconds(15));
+        return new RestTemplate(factory);
     }
 
     GeminiAiServiceImpl(
@@ -73,7 +85,9 @@ public class GeminiAiServiceImpl implements AiModerationService {
         }
 
         AiModerationResult result = requestModeration(content);
-        moderationCache.store(content, model, promptVersion, result);
+        if (!"AI_ERROR".equals(result.getLabel())) {
+            moderationCache.store(content, model, promptVersion, result);
+        }
         return result;
     }
 
@@ -86,6 +100,17 @@ public class GeminiAiServiceImpl implements AiModerationService {
 
     private AiModerationResult requestModeration(String content) {
         try {
+            if (!GEMINI_SEMAPHORE.tryAcquire(1, TimeUnit.SECONDS)) {
+                logger.warn("⚠️ Gemini AI semaphore saturated, marking as AI_ERROR");
+                return new AiModerationResult(0.9, "AI_ERROR", "Hệ thống quá tải - Cần duyệt thủ công");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("⚠️ Interrupted while waiting for Gemini semaphore");
+            return new AiModerationResult(0.9, "AI_ERROR", "Bị gián đoạn khi kiểm duyệt AI");
+        }
+
+        try {
             String url = String.format("%s/%s:generateContent?key=%s", apiUrl, model, apiKey);
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(buildRequestBody(content), jsonHeaders());
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
@@ -94,6 +119,8 @@ public class GeminiAiServiceImpl implements AiModerationService {
             }
         } catch (Exception e) {
             logger.error("❌ Gemini API call failed: {}", e.getMessage(), e);
+        } finally {
+            GEMINI_SEMAPHORE.release();
         }
 
         return new AiModerationResult(0.9, "AI_ERROR", "Lỗi kết nối Gemini AI - Cần duyệt thủ công");
@@ -139,8 +166,20 @@ public class GeminiAiServiceImpl implements AiModerationService {
         String rawText = candidates.get(0).path("content").path("parts").get(0).path("text").asText();
         String cleanedJson = rawText.replace("```json", "").replace("```", "").trim();
         JsonNode resultNode = mapper.readTree(cleanedJson);
-        String label = resultNode.path("label").asText("SAFE").toUpperCase();
-        String reason = resultNode.path("reason").asText("Nội dung hợp lệ");
+
+        if (!resultNode.has("label") || resultNode.path("label").asText().isBlank()) {
+            throw new IllegalStateException("Gemini response missing required 'label' field");
+        }
+        if (!resultNode.has("reason") || resultNode.path("reason").asText().isBlank()) {
+            throw new IllegalStateException("Gemini response missing required 'reason' field");
+        }
+
+        String label = resultNode.path("label").asText().toUpperCase();
+        if (!"SAFE".equals(label) && !"TOXIC".equals(label)) {
+            throw new IllegalStateException("Unknown label value: " + label);
+        }
+
+        String reason = resultNode.path("reason").asText();
         boolean isSafe = "SAFE".equals(label);
         AiModerationResult result = new AiModerationResult(isSafe ? 0.1 : 0.9, isSafe ? "SAFE" : "TOXIC", reason);
         logger.info("🤖 Gemini AI Moderation: label={}, reason={}", result.getLabel(), reason);

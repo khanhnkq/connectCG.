@@ -53,11 +53,11 @@ class ReactionP2BusinessRulesTest {
         when(postRepository.findById(10)).thenReturn(Optional.of(post));
         when(reactionRepository.findById(org.mockito.ArgumentMatchers.any())).thenReturn(Optional.empty());
         when(userRepository.getReferenceById(2)).thenReturn(author);
-        when(reactionRepository.countByPostId(10)).thenReturn(4L);
+        when(postRepository.findReactCountById(10)).thenReturn(4);
 
         reactionService.reactToPost(10, 2, "LOVE");
 
-        verify(postRepository).updateReactCount(10, 4);
+        verify(postRepository).adjustReactCount(10, 1);
         ArgumentCaptor<ReactionEventDTO> eventCaptor = ArgumentCaptor.forClass(ReactionEventDTO.class);
         verify(postRealtimeService).publishReactionEvent(org.mockito.ArgumentMatchers.eq(post), eventCaptor.capture());
         assertEquals(4, eventCaptor.getValue().getNewReactCount());

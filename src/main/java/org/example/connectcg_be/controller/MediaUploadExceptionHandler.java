@@ -29,4 +29,10 @@ public class MediaUploadExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(Map.of("message", "Object storage tạm thời không khả dụng"));
     }
+
+    @ExceptionHandler(org.springframework.web.multipart.MultipartException.class)
+    public ResponseEntity<Map<String, String>> multipartError(org.springframework.web.multipart.MultipartException exception) {
+        return ResponseEntity.badRequest()
+                .body(Map.of("message", "Request không phải multipart/form-data hoặc thiếu file upload"));
+    }
 }

@@ -53,17 +53,17 @@ class CommentP2BusinessRulesTest {
         Comment grandchild = comment(22, post, child);
         Comment otherRoot = comment(23, post, null);
 
-        when(commentRepository.findById(20)).thenReturn(Optional.of(root));
+        when(commentRepository.findByIdForUpdate(20)).thenReturn(Optional.of(root));
         when(commentRepository.findByPostIdAndIsDeletedFalseOrderByCreatedAtDesc(10))
                 .thenReturn(List.of(root, child, grandchild, otherRoot));
-        when(commentRepository.countByPostIdAndIsDeletedFalse(10)).thenReturn(1L);
+        when(postRepository.findCommentCountById(10)).thenReturn(1);
 
         commentService.deleteComment(10, 20, 2);
 
         assertTrue(root.getIsDeleted());
         assertTrue(child.getIsDeleted());
         assertTrue(grandchild.getIsDeleted());
-        verify(postRepository).updateCommentCount(10, 1);
+        verify(postRepository).adjustCommentCount(10, -3);
     }
 
     private Post post(Integer id) {

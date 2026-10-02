@@ -37,17 +37,29 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional
-    public void markAsRead(Integer notificationId) {
+    public void markAsRead(Integer notificationId, Integer userId) {
         Notification notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> new RuntimeException("Notification not found"));
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Không tìm thấy thông báo"));
+        if (notification.getUser() == null || !notification.getUser().getId().equals(userId)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên thông báo này");
+        }
         notification.setIsRead(true);
         notificationRepository.save(notification);
     }
 
     @Override
     @Transactional
-    public void deleteNotification(Integer notificationId) {
-        notificationRepository.deleteById(notificationId);
+    public void deleteNotification(Integer notificationId, Integer userId) {
+        Notification notification = notificationRepository.findById(notificationId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Không tìm thấy thông báo"));
+        if (notification.getUser() == null || !notification.getUser().getId().equals(userId)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên thông báo này");
+        }
+        notificationRepository.delete(notification);
     }
 
     @Transactional
@@ -71,10 +83,6 @@ public class NotificationServiceImpl implements NotificationService {
         entity.setCreatedAt(java.time.Instant.now());
         Notification saved = notificationRepository.save(entity);
 
-        dto.setId(saved.getId());
-        dto.setCreatedAt(saved.getCreatedAt());
-        dto.setIsRead(false);
-
         // Fetch actor info for real-time WebSocket display
         String actorName = "Hệ thống";
         String actorAvatarUrl = "https://cdn-icons-png.flaticon.com/512/149/149071.png";
@@ -91,13 +99,29 @@ public class NotificationServiceImpl implements NotificationService {
             }
         }
 
+        // Create an isolated snapshot DTO for deferred realtime transmission
+        TungNotificationDTO outgoingDto = new TungNotificationDTO();
+        outgoingDto.setId(saved.getId());
+        outgoingDto.setContent(dto.getContent());
+        outgoingDto.setType(dto.getType());
+        outgoingDto.setTargetType(dto.getTargetType());
+        outgoingDto.setTargetId(dto.getTargetId());
+        outgoingDto.setIsRead(false);
+        outgoingDto.setCreatedAt(saved.getCreatedAt());
+        outgoingDto.setActorName(actorName);
+        outgoingDto.setActorAvatar(actorAvatarUrl);
+
+        // Also update caller's dto in place
+        dto.setId(saved.getId());
+        dto.setCreatedAt(saved.getCreatedAt());
+        dto.setIsRead(false);
         dto.setActorName(actorName);
         dto.setActorAvatar(actorAvatarUrl);
 
         realtimeEventPublisher.sendToUser(
                 receiver.getUsername(),
                 "/queue/notifications",
-                dto);
+                outgoingDto);
     }
 
     @Override

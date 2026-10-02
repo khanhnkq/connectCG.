@@ -6,4 +6,6 @@ public interface ObjectStorageService {
     StoredObject store(InputStream inputStream, long size, String contentType, String objectKey);
 
     void delete(String objectKey);
+
+    InputStream load(String objectKey);
 }

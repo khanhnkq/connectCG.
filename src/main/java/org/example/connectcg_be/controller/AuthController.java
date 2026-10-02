@@ -83,9 +83,10 @@ public class AuthController {
             @Valid @RequestBody LoginRequest loginRequest,
             HttpServletRequest request,
             HttpServletResponse response) {
+        rateLimitService.check(RateLimitPolicy.LOGIN_IP, request.getRemoteAddr());
         rateLimitService.check(
                 RateLimitPolicy.LOGIN,
-                request.getRemoteAddr() + "|" + loginRequest.getUsername());
+                loginRequest.getUsername() != null ? loginRequest.getUsername().trim().toLowerCase(java.util.Locale.ROOT) : "");
 
         try {
             Authentication authentication = authenticationManager.authenticate(
@@ -191,7 +192,11 @@ public class AuthController {
     }
 
     @PostMapping("/reset-password")
-    public ResponseEntity<?> resetPassword(@RequestParam String token, @RequestParam String newPassword) {
+    public ResponseEntity<?> resetPassword(
+            @RequestParam String token,
+            @RequestParam String newPassword,
+            HttpServletRequest request) {
+        rateLimitService.check(RateLimitPolicy.RESET_PASSWORD, request.getRemoteAddr());
         authService.resetPassword(token, newPassword);
         return ResponseEntity.ok(Map.of("message", "Password updated"));
     }

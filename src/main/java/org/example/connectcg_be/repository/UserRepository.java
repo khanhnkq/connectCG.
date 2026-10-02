@@ -63,4 +63,6 @@ public interface UserRepository extends JpaRepository<User, Integer> {
                         @Param("role") String role,
                         Pageable pageable);
 
+        @Query("SELECT u.id FROM User u WHERE u.isDeleted = false AND u.isLocked = false")
+        java.util.List<Integer> findActiveUserIds();
 }

@@ -45,10 +45,24 @@ public class ChatRoomServiceImpl implements ChatRoomService {
     @Autowired
     private RealtimeEventPublisher realtimeEventPublisher;
 
+    private String buildCanonicalPairKey(Integer u1, Integer u2) {
+        int min = Math.min(u1, u2);
+        int max = Math.max(u1, u2);
+        return "direct:" + min + ":" + max;
+    }
+
     @Override
     @Transactional
     public ChatRoomDTO getOrCreateDirectChat(User user1, User user2) {
-        // Tìm phòng chat chung giữa 2 người
+        String pairKey = buildCanonicalPairKey(user1.getId(), user2.getId());
+
+        // 1. Tìm nhanh qua canonicalPairKey
+        Optional<ChatRoom> existingRoom = chatRoomRepository.findByCanonicalPairKey(pairKey);
+        if (existingRoom.isPresent()) {
+            return convertToDTO(existingRoom.get(), user1.getId());
+        }
+
+        // 2. Fallback tìm qua membership phòng cũ (nếu chưa có pairKey)
         List<ChatRoomMember> memberships1 = chatRoomMemberRepository.findByUser_Id(user1.getId());
         for (ChatRoomMember m1 : memberships1) {
             ChatRoom room = m1.getChatRoom();
@@ -56,25 +70,37 @@ public class ChatRoomServiceImpl implements ChatRoomService {
                 Optional<ChatRoomMember> m2 = chatRoomMemberRepository.findByChatRoom_IdAndUser_Id(room.getId(),
                         user2.getId());
                 if (m2.isPresent()) {
+                    if (room.getCanonicalPairKey() == null) {
+                        room.setCanonicalPairKey(pairKey);
+                        chatRoomRepository.save(room);
+                    }
                     return convertToDTO(room, user1.getId());
                 }
             }
         }
 
-        // Nếu chưa có, tạo mới
-        ChatRoom room = new ChatRoom();
-        room.setType("DIRECT");
-        room.setFirebaseRoomKey(UUID.randomUUID().toString());
-        room.setCreatedBy(user1);
-        room.setCreatedAt(Instant.now());
-        room.setIsActive(true);
-        room = chatRoomRepository.save(room);
+        // 3. Nếu chưa có, tạo mới với canonicalPairKey
+        synchronized (pairKey.intern()) {
+            Optional<ChatRoom> doubleCheck = chatRoomRepository.findByCanonicalPairKey(pairKey);
+            if (doubleCheck.isPresent()) {
+                return convertToDTO(doubleCheck.get(), user1.getId());
+            }
 
-        // Add members
-        addMember(room, user1, "ADMIN");
-        addMember(room, user2, "MEMBER");
+            ChatRoom room = new ChatRoom();
+            room.setType("DIRECT");
+            room.setCanonicalPairKey(pairKey);
+            room.setFirebaseRoomKey(UUID.randomUUID().toString());
+            room.setCreatedBy(user1);
+            room.setCreatedAt(Instant.now());
+            room.setIsActive(true);
+            room = chatRoomRepository.save(room);
 
-        return convertToDTO(room, user1.getId());
+            // Add members
+            addMember(room, user1, "ADMIN");
+            addMember(room, user2, "MEMBER");
+
+            return convertToDTO(room, user1.getId());
+        }
     }
 
     @Override

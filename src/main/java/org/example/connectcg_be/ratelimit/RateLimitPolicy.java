@@ -4,8 +4,10 @@ import java.time.Duration;
 
 public enum RateLimitPolicy {
     LOGIN("login", 5, Duration.ofMinutes(10)),
+    LOGIN_IP("login-ip", 20, Duration.ofMinutes(10)),
     REGISTER("register", 5, Duration.ofHours(1)),
     FORGOT_PASSWORD("forgot-password", 3, Duration.ofMinutes(30)),
+    RESET_PASSWORD("reset-password", 5, Duration.ofMinutes(15)),
     AI_POST("ai-post", 20, Duration.ofHours(1)),
     MEDIA_UPLOAD("media-upload", 60, Duration.ofHours(1)),
     WEBSOCKET_TYPING("websocket-typing", 5, Duration.ofSeconds(1));

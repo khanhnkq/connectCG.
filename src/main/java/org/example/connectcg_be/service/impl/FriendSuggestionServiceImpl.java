@@ -34,6 +34,7 @@ public class FriendSuggestionServiceImpl implements FriendSuggestionService {
     private final UserProfileRepository userProfileRepository;
     private final UserAvatarRepository userAvatarRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
     @Override
     @Transactional
@@ -256,29 +257,25 @@ public class FriendSuggestionServiceImpl implements FriendSuggestionService {
     }
 
     @Override
-    @Transactional
     public void refreshAllSuggestions() {
         log.info("Refreshing suggestions for all active users");
         
-        // Get all active users
-        List<User> activeUsers = userRepository.findAll().stream()
-                .filter(u -> !u.getIsDeleted() && !u.getIsLocked())
-                .toList();
+        List<Integer> activeUserIds = userRepository.findActiveUserIds();
         
         int count = 0;
-        for (User user : activeUsers) {
+        for (Integer userId : activeUserIds) {
             try {
-                // Skip if already has valid cache
-                boolean hasValidCache = friendSuggestionRepository.existsByUserIdAndExpiresAtAfter(
-                    user.getId(), Instant.now()
-                );
-                
-                if (!hasValidCache) {
-                    calculateSuggestions(user.getId());
-                    count++;
-                }
+                transactionTemplate.executeWithoutResult(status -> {
+                    boolean hasValidCache = friendSuggestionRepository.existsByUserIdAndExpiresAtAfter(
+                        userId, Instant.now()
+                    );
+                    if (!hasValidCache) {
+                        calculateSuggestions(userId);
+                    }
+                });
+                count++;
             } catch (Exception e) {
-                log.error("Error refreshing suggestions for user: {}", user.getId(), e);
+                log.error("Error refreshing suggestions for user: {}", userId, e);
             }
         }
         

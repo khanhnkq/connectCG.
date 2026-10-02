@@ -83,10 +83,14 @@ public class FriendRequestServiceImpl implements FriendRequestService {
             throw new RuntimeException("Request is already processed");
         }
 
-        // 1. Cập nhật trạng thái lời mời thành ACCEPTED
+        // 1. Cập nhật trạng thái lời mời thành ACCEPTED atomically nếu vẫn còn PENDING
+        Instant now = Instant.now();
+        int updated = friendRequestRepository.updateStatusIfPending(requestId, userId, "ACCEPTED", now);
+        if (updated == 0) {
+            throw new RuntimeException("Request is already processed");
+        }
         request.setStatus("ACCEPTED");
-        request.setRespondedAt(Instant.now());
-        friendRequestRepository.save(request);
+        request.setRespondedAt(now);
 
         // 2. Tạo quan hệ bạn bè 2 chiều (Mutual Friendship)
         User sender = request.getSender();
@@ -153,9 +157,13 @@ public class FriendRequestServiceImpl implements FriendRequestService {
             throw new RuntimeException("Request is already processed");
         }
 
+        Instant now = Instant.now();
+        int updated = friendRequestRepository.updateStatusIfPending(requestId, userId, "REJECTED", now);
+        if (updated == 0) {
+            throw new RuntimeException("Request is already processed");
+        }
         request.setStatus("REJECTED");
-        request.setRespondedAt(Instant.now());
-        friendRequestRepository.save(request);
+        request.setRespondedAt(now);
     }
 
     /**
@@ -197,7 +205,11 @@ public class FriendRequestServiceImpl implements FriendRequestService {
         request.setStatus("PENDING");
         request.setCreatedAt(Instant.now());
 
-        friendRequestRepository.save(request);
+        try {
+            friendRequestRepository.save(request);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            throw new RuntimeException("A friend request is already pending between these users");
+        }
         
         // Xóa gợi ý kết bạn (nếu có)
         friendSuggestionRepository.deleteByUserIdAndSuggestedUserId(senderId, receiverId);

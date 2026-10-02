@@ -73,6 +73,27 @@ class ChatWebSocketControllerTest {
         verify(publisher, times(6)).sendEphemeralToTopic(
                 org.mockito.ArgumentMatchers.eq("/topic/chat/room-key/typing"),
                 org.mockito.ArgumentMatchers.any(TypingEventDTO.class));
+        // Verify canAccessChat was only called 6 times (5 typing + 1 stop), NOT 7 times
+        verify(authorizationService, times(6)).canAccessChat(7, "room-key");
+    }
+
+    @Test
+    void excessiveStopEventsAreAlsoDropped() {
+        UserPrincipal user = user(8, "alice");
+        when(authorizationService.canAccessChat(8, "room-key")).thenReturn(true);
+        when(userProfileRepository.findByUserId(8)).thenReturn(Optional.empty());
+
+        for (int attempt = 0; attempt < 10; attempt++) {
+            controller.handleTyping(
+                    new TypingEventDTO("room-key", 8, "alice", false),
+                    authentication(user));
+        }
+
+        // Limit is 5, so only 5 stop events should be processed and sent to publisher
+        verify(publisher, times(5)).sendEphemeralToTopic(
+                org.mockito.ArgumentMatchers.eq("/topic/chat/room-key/typing"),
+                org.mockito.ArgumentMatchers.any(TypingEventDTO.class));
+        verify(authorizationService, times(5)).canAccessChat(8, "room-key");
     }
 
     private UserPrincipal user(Integer id, String username) {

@@ -7,14 +7,16 @@ import org.example.connectcg_be.entity.User;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 @AllArgsConstructor
-public class UserPrincipal implements UserDetails {
+public class UserPrincipal implements UserDetails, OAuth2User {
 
     private Integer id;
     private String username;
@@ -26,6 +28,7 @@ public class UserPrincipal implements UserDetails {
     private boolean isEnabled;
     private Collection<? extends GrantedAuthority> authorities;
     private int authVersion;
+    private Map<String, Object> attributes;
 
     public UserPrincipal(Integer id, String username, String email, String password, boolean isEnabled,
             boolean isLocked, boolean isDeleted,
@@ -71,6 +74,22 @@ public class UserPrincipal implements UserDetails {
                 Boolean.TRUE.equals(user.getIsDeleted()),
                 authorities,
                 user.getAuthVersion() == null ? 0 : user.getAuthVersion());
+    }
+
+    public static UserPrincipal create(User user, Map<String, Object> attributes) {
+        UserPrincipal principal = UserPrincipal.create(user);
+        principal.attributes = attributes;
+        return principal;
+    }
+
+    @Override
+    public Map<String, Object> getAttributes() {
+        return attributes != null ? attributes : Collections.emptyMap();
+    }
+
+    @Override
+    public String getName() {
+        return username != null ? username : String.valueOf(id);
     }
 
     @Override

@@ -54,4 +54,31 @@ class StompRealtimeEventPublisherTest {
 
         verify(messagingTemplate, never()).convertAndSendToUser("john", "/queue/chat", "payload");
     }
+
+    @Test
+    void exceptionDuringAfterCommitDoesNotPropagate() {
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setCurrentTransactionReadOnly(false);
+
+        org.mockito.Mockito.doThrow(new RuntimeException("STOMP connection closed"))
+                .when(messagingTemplate).convertAndSend("/topic/posts", "payload");
+
+        publisher.sendToTopic("/topic/posts", "payload");
+
+        // Calling afterCommit should not throw
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> {
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+        });
+    }
+
+    @Test
+    void exceptionOutsideTransactionDoesNotPropagate() {
+        org.mockito.Mockito.doThrow(new RuntimeException("STOMP connection closed"))
+                .when(messagingTemplate).convertAndSend("/topic/posts", "payload");
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> {
+            publisher.sendToTopic("/topic/posts", "payload");
+        });
+    }
 }
