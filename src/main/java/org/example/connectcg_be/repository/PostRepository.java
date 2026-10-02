@@ -88,10 +88,11 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
       "originalPost.group", "originalPost.approvedBy" })
   @Query("""
         select p from Post p
+        left join p.group g
         where p.isDeleted = false
           and p.status = 'APPROVED'
           and (
-            (p.group.id in :groupIds and p.group.isDeleted = false)
+            (g.id in :groupIds and g.isDeleted = false)
             or
             (p.group is null and (
                 p.author.id = :userId
@@ -109,10 +110,11 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
       "originalPost.group", "originalPost.approvedBy" })
   @Query(value = """
         select p from Post p
+        left join p.group g
         where p.isDeleted = false
           and p.status = 'APPROVED'
           and (
-            (p.group.id in :groupIds and p.group.isDeleted = false)
+            (g.id in :groupIds and g.isDeleted = false)
             or
             (p.group is null and (
                 p.author.id = :userId
@@ -123,10 +125,11 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
         order by p.createdAt desc
       """, countQuery = """
         select count(p) from Post p
+        left join p.group g
         where p.isDeleted = false
           and p.status = 'APPROVED'
           and (
-            (p.group.id in :groupIds and p.group.isDeleted = false)
+            (g.id in :groupIds and g.isDeleted = false)
             or
             (p.group is null and (
                 p.author.id = :userId
