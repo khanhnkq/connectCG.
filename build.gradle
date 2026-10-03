@@ -20,8 +20,8 @@ ext['flyway.version'] = '10.20.0'
 
 dependencies {
 
-    // Source: https://mvnrepository.com/artifact/org.springframework.kafka/spring-kafka
-    implementation("org.springframework.kafka:spring-kafka")
+    // AMQP / RabbitMQ for async queue jobs
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
     implementation 'org.springframework.boot:spring-boot-starter-web'
     // Spring Boot Starter Mail (JavaMailSender)
     implementation 'org.springframework.boot:spring-boot-starter-mail'
@@ -54,6 +54,7 @@ runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.amqp:spring-rabbit-test'
     testImplementation 'org.testcontainers:postgresql'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }

@@ -43,6 +43,8 @@ public class AuthServiceImpl implements AuthService {
     private PasswordResetTokenRepository tokenRepository;
     @Autowired
     private EmailService emailService;
+    @Autowired
+    private org.example.connectcg_be.queue.producer.EmailQueueProducer emailQueueProducer;
 
     @Autowired
     private VerificationTokenRepository verificationTokenRepository;
@@ -106,7 +108,7 @@ public class AuthServiceImpl implements AuthService {
                 </div>
                 """
                 .formatted(savedUser.getUsername(), link);
-        emailService.sendHtmlMessage(savedUser.getEmail(), "Xác thực tài khoản - Connect", htmlContent);
+        emailQueueProducer.sendEmail(savedUser.getEmail(), "Xác thực tài khoản - Connect", htmlContent, "VERIFY_EMAIL");
         return savedUser;
     }
 
@@ -214,7 +216,7 @@ public class AuthServiceImpl implements AuthService {
                     </div>
                 """
                 .formatted(user.getUsername(), link);
-        emailService.sendHtmlMessage(email, "Yêu cầu đặt lại mật khẩu - Connect", htmlContent);
+        emailQueueProducer.sendEmail(email, "Yêu cầu đặt lại mật khẩu - Connect", htmlContent, "FORGOT_PASSWORD");
     }
 
     @Override

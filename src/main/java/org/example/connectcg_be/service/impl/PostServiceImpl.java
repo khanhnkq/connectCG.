@@ -79,6 +79,9 @@ public class PostServiceImpl implements PostService {
     private org.example.connectcg_be.service.PostRealtimeService postRealtimeService;
 
     @Autowired(required = false)
+    private org.example.connectcg_be.queue.producer.AiQueueProducer aiQueueProducer;
+
+    @Autowired(required = false)
     private TransactionTemplate transactionTemplate;
 
     @Autowired(required = false)
@@ -464,8 +467,10 @@ public class PostServiceImpl implements PostService {
         boolean isGroup = group != null;
         boolean shouldCheckAi = (isGroup || isPublic) && !isPrivileged;
 
+        boolean useAsyncAi = shouldCheckAi && aiQueueProducer != null && aiQueueProducer.isQueueEnabled();
+
         AiModerationResult aiResult = null;
-        if (shouldCheckAi) {
+        if (shouldCheckAi && !useAsyncAi) {
             aiResult = aiModerationService.checkPostContent(request.getContent());
         }
 
@@ -473,6 +478,7 @@ public class PostServiceImpl implements PostService {
         final AiModerationResult finalAiResult = aiResult;
         final boolean finalIsPrivileged = isPrivileged;
         final boolean finalShouldCheckAi = shouldCheckAi;
+        final boolean finalUseAsyncAi = useAsyncAi;
 
         return executeInTransaction(status -> {
             Post post = new Post();
@@ -489,10 +495,14 @@ public class PostServiceImpl implements PostService {
                 post.setGroup(finalGroup);
             }
 
-            // AI Moderation Logic with Simplified 0.6 threshold
+            // AI Moderation Logic
             if (!finalShouldCheckAi || finalIsPrivileged) {
                 post.setStatus("APPROVED");
                 post.setAiStatus(finalIsPrivileged ? "SAFE" : "NOT_CHECKED");
+                post.setAiScore(0.0);
+            } else if (finalUseAsyncAi) {
+                post.setStatus("PENDING");
+                post.setAiStatus("CHECKING");
                 post.setAiScore(0.0);
             } else {
                 post.setCheckedAt(Instant.now());
@@ -522,12 +532,17 @@ public class PostServiceImpl implements PostService {
                 postRealtimeService.publishPostEvent(savedPost, event);
 
                 TungNotificationDTO notifDto = new TungNotificationDTO();
-                notifDto.setContent("Bài viết của bạn đã được gửi và đang chờ quản trị viên phê duyệt.");
+                notifDto.setContent(finalUseAsyncAi ? "Bài viết của bạn đang được kiểm duyệt tự động." : "Bài viết của bạn đã được gửi và đang chờ quản trị viên phê duyệt.");
                 notifDto.setType("POST_PENDING");
                 notifDto.setTargetType("POST");
                 notifDto.setTargetId(savedPost.getId());
                 notificationService.sendNotification(notifDto, author);
             }
+
+            if (finalUseAsyncAi) {
+                aiQueueProducer.enqueueModeration(savedPost.getId(), request.getContent(), "CREATE", author.getId(), savedPost.getUpdatedAt());
+            }
+
             return savedPost;
         });
     }
@@ -560,8 +575,10 @@ public class PostServiceImpl implements PostService {
         boolean willCheckAi = (contentChanged || (visibilityChanged && "PUBLIC".equals(request.getVisibility())))
                 && !isPrivileged && shouldCheckAi;
 
+        boolean useAsyncAi = willCheckAi && aiQueueProducer != null && aiQueueProducer.isQueueEnabled();
+
         AiModerationResult aiResult = null;
-        if (willCheckAi) {
+        if (willCheckAi && !useAsyncAi) {
             aiResult = aiModerationService.checkPostContent(request.getContent());
         }
 
@@ -570,6 +587,7 @@ public class PostServiceImpl implements PostService {
         final boolean finalIsPrivileged = isPrivileged;
         final boolean finalShouldCheckAi = shouldCheckAi;
         final boolean finalWillCheckAi = willCheckAi;
+        final boolean finalUseAsyncAi = useAsyncAi;
 
         return executeInTransaction(status -> {
             post.setContent(request.getContent());
@@ -580,6 +598,10 @@ public class PostServiceImpl implements PostService {
                 if (finalIsPrivileged || !finalShouldCheckAi) {
                     post.setStatus("APPROVED");
                     post.setAiStatus(finalIsPrivileged ? "SAFE" : "NOT_CHECKED");
+                    post.setAiScore(0.0);
+                } else if (finalUseAsyncAi) {
+                    post.setStatus("PENDING");
+                    post.setAiStatus("CHECKING");
                     post.setAiScore(0.0);
                 } else if (finalWillCheckAi && finalAiResult != null) {
                     post.setCheckedAt(Instant.now());
@@ -611,11 +633,15 @@ public class PostServiceImpl implements PostService {
                 postRealtimeService.publishPostEvent(savedPost, event);
 
                 TungNotificationDTO notifDto = new TungNotificationDTO();
-                notifDto.setContent("Bài viết (chỉnh sửa) của bạn đang chờ kiểm duyệt lại.");
+                notifDto.setContent(finalUseAsyncAi ? "Bài viết (chỉnh sửa) của bạn đang được kiểm duyệt tự động." : "Bài viết (chỉnh sửa) của bạn đang chờ kiểm duyệt lại.");
                 notifDto.setType("POST_PENDING");
                 notifDto.setTargetType("POST");
                 notifDto.setTargetId(savedPost.getId());
                 notificationService.sendNotification(notifDto, savedPost.getAuthor());
+            }
+
+            if (finalUseAsyncAi) {
+                aiQueueProducer.enqueueModeration(savedPost.getId(), request.getContent(), "UPDATE", savedPost.getAuthor().getId(), savedPost.getUpdatedAt());
             }
 
             return savedPost;
@@ -841,11 +867,16 @@ public class PostServiceImpl implements PostService {
         }
 
         // Call AI moderation outside transaction to prevent holding DB connections
-        AiModerationResult aiResult = aiModerationService.checkPostContent(request.getContent());
+        boolean useAsyncAi = aiQueueProducer != null && aiQueueProducer.isQueueEnabled();
+        AiModerationResult aiResult = null;
+        if (!useAsyncAi) {
+            aiResult = aiModerationService.checkPostContent(request.getContent());
+        }
 
         final Post targetOriginalPost = originalPost;
         final Group finalGroup = group;
         final AiModerationResult finalAiResult = aiResult;
+        final boolean finalUseAsyncAi = useAsyncAi;
 
         return executeInTransaction(status -> {
             Post newPost = new Post();
@@ -863,16 +894,22 @@ public class PostServiceImpl implements PostService {
                 newPost.setGroup(finalGroup);
             }
 
-            newPost.setCheckedAt(Instant.now());
-            newPost.setAiStatus(finalAiResult.getLabel());
-            newPost.setAiScore(finalAiResult.getScore());
-            newPost.setAiReason(finalAiResult.getReason());
-
-            // Unified threshold: < 0.6 is APPROVED, >= 0.6 is PENDING
-            if (finalAiResult.getScore() < 0.6) {
-                newPost.setStatus("APPROVED");
-            } else {
+            if (finalUseAsyncAi) {
                 newPost.setStatus("PENDING");
+                newPost.setAiStatus("CHECKING");
+                newPost.setAiScore(0.0);
+            } else {
+                newPost.setCheckedAt(Instant.now());
+                newPost.setAiStatus(finalAiResult.getLabel());
+                newPost.setAiScore(finalAiResult.getScore());
+                newPost.setAiReason(finalAiResult.getReason());
+
+                // Unified threshold: < 0.6 is APPROVED, >= 0.6 is PENDING
+                if (finalAiResult.getScore() < 0.6) {
+                    newPost.setStatus("APPROVED");
+                } else {
+                    newPost.setStatus("PENDING");
+                }
             }
 
             Post savedPost = postRepository.save(newPost);
@@ -899,7 +936,63 @@ public class PostServiceImpl implements PostService {
                     // ignore notification error
                 }
             }
+
+            if (finalUseAsyncAi) {
+                aiQueueProducer.enqueueModeration(savedPost.getId(), request.getContent(), "SHARE", author.getId(), savedPost.getUpdatedAt());
+            }
+
             return convertToDTO(savedPost, userId);
+        });
+    }
+
+    @Override
+    public void processAsyncModeration(Integer postId, String content, String actionType, Instant revisionTime) {
+        Post post = postRepository.findById(postId).orElse(null);
+        if (post == null || Boolean.TRUE.equals(post.getIsDeleted())) {
+            return;
+        }
+
+        if (revisionTime != null && post.getUpdatedAt() != null && post.getUpdatedAt().isAfter(revisionTime)) {
+            return;
+        }
+
+        AiModerationResult aiResult = aiModerationService.checkPostContent(content);
+
+        executeInTransaction(status -> {
+            Post currentPost = postRepository.findById(postId).orElse(null);
+            if (currentPost == null || Boolean.TRUE.equals(currentPost.getIsDeleted())) {
+                return null;
+            }
+
+            currentPost.setCheckedAt(Instant.now());
+            currentPost.setAiStatus(aiResult.getLabel());
+            currentPost.setAiScore(aiResult.getScore());
+            currentPost.setAiReason(aiResult.getReason());
+
+            if (aiResult.getScore() < 0.6) {
+                currentPost.setStatus("APPROVED");
+                Post saved = postRepository.save(currentPost);
+
+                GroupPostDTO dto = convertToDTO(saved, null);
+                String eventType = "UPDATE".equalsIgnoreCase(actionType) ? "UPDATED" : "CREATED";
+                PostEventDTO event = new PostEventDTO(eventType, dto, saved.getId());
+                postRealtimeService.publishPostEvent(saved, event);
+            } else {
+                currentPost.setStatus("PENDING");
+                Post saved = postRepository.save(currentPost);
+
+                GroupPostDTO dto = convertToDTO(saved, null);
+                PostEventDTO event = new PostEventDTO("UPDATED", dto, saved.getId());
+                postRealtimeService.publishPostEvent(saved, event);
+
+                TungNotificationDTO notifDto = new TungNotificationDTO();
+                notifDto.setContent("Bài viết của bạn đang chờ quản trị viên phê duyệt do nghi vấn vi phạm tiêu chuẩn cộng đồng.");
+                notifDto.setType("POST_PENDING");
+                notifDto.setTargetType("POST");
+                notifDto.setTargetId(saved.getId());
+                notificationService.sendNotification(notifDto, saved.getAuthor());
+            }
+            return null;
         });
     }
 }

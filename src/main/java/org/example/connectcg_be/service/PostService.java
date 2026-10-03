@@ -57,4 +57,6 @@ public interface PostService {
         void togglePinPost(Integer postId, Integer userId);
 
         GroupPostDTO sharePost(Integer originalPostId, CreatePostRequest request, Integer userId);
+
+        void processAsyncModeration(Integer postId, String content, String actionType, java.time.Instant revisionTime);
 }

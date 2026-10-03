@@ -38,6 +38,26 @@ services:
       retries: 10
     networks: [backend]
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
+    ports:
+      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:${RABBITMQ_PORT:-5672}:5672"
+      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [backend]
+
   backend:
     image: ${BACKEND_IMAGE:-ghcr.io/khanhnkq/connectcg-backend}:${BACKEND_TAG:-latest}
     restart: unless-stopped
@@ -45,6 +65,8 @@ services:
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     ports:
       - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
@@ -90,12 +112,17 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME is required}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
     networks: [backend]
 
 volumes:
   redis_data:
   minio_data:
+  rabbitmq_data:
 
 networks:
   backend:

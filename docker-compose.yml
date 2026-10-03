@@ -66,7 +66,32 @@ services:
       - connect-network
 
   # =========================================================================
-  # 4. Backend Spring Boot (Java 17 / Flyway / WebSocket / Gemini AI)
+  # 4. RabbitMQ (Message Broker cho Queue async jobs)
+  # =========================================================================
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: connect_rabbitmq
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-connect_admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-connect_rabbit_password}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - connect-network
+
+  # =========================================================================
+  # 5. Backend Spring Boot (Java 17 / Flyway / WebSocket / Gemini AI)
   # =========================================================================
   backend:
     build:
@@ -81,6 +106,8 @@ services:
       mail:
         condition: service_started
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     ports:
       - "${PORT:-8080}:8080"
@@ -130,6 +157,10 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-connect_redis_password}
       REDIS_CONNECT_TIMEOUT: ${REDIS_CONNECT_TIMEOUT:-500ms}
       REDIS_COMMAND_TIMEOUT: ${REDIS_COMMAND_TIMEOUT:-500ms}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-connect_admin}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-connect_rabbit_password}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       APP_ENV: ${APP_ENV:-local}
     networks:
@@ -142,6 +173,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  rabbitmq_data:
     driver: local
 
 networks:
