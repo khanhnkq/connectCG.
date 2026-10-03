@@ -24,6 +24,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final org.example.connectcg_be.security.AuthCookieService authCookieService;
     private final org.example.connectcg_be.security.AccessTokenRevocationService revocationService;
     private final org.example.connectcg_be.security.JwtTokenProvider tokenProvider;
+    private final org.example.connectcg_be.security.CustomUserDetailsService customUserDetailsService;
 
     public WebSocketConfig(
             WebSocketAuthorizationService authorizationService,
@@ -31,7 +32,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             @Value("${app.websocket.allowed-origins:${frontend.url:http://localhost:5173}}") String allowedOrigins,
             org.example.connectcg_be.security.AuthCookieService authCookieService,
             org.example.connectcg_be.security.AccessTokenRevocationService revocationService,
-            org.example.connectcg_be.security.JwtTokenProvider tokenProvider) {
+            org.example.connectcg_be.security.JwtTokenProvider tokenProvider,
+            org.example.connectcg_be.security.CustomUserDetailsService customUserDetailsService) {
         this.authorizationService = authorizationService;
         this.heartbeatScheduler = heartbeatScheduler;
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
@@ -41,6 +43,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         this.authCookieService = authCookieService;
         this.revocationService = revocationService;
         this.tokenProvider = tokenProvider;
+        this.customUserDetailsService = customUserDetailsService;
     }
 
     @Override
@@ -62,7 +65,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(new WebSocketAuthInterceptor(authorizationService, revocationService, tokenProvider));
+        registration.interceptors(new WebSocketAuthInterceptor(authorizationService, revocationService, tokenProvider, customUserDetailsService));
         registration.taskExecutor()
                 .corePoolSize(2)
                 .maxPoolSize(8)

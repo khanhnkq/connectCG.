@@ -55,8 +55,7 @@ public class UserProfileController {
             @PathVariable("userId") Integer userId,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
-        System.out.println(currentUser.getId());
-        Integer currentUserId = currentUser.getId();
+        Integer currentUserId = (currentUser != null) ? currentUser.getId() : null;
         UserProfileDTO profile = userProfileService.getUserProfile(userId, currentUserId);
         return ResponseEntity.ok(profile);
     }
@@ -93,9 +92,13 @@ public class UserProfileController {
     }
 
     @PutMapping("/hobbies")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> updateUserHobbies(
             @AuthenticationPrincipal UserPrincipal currentUser,
             @RequestBody java.util.List<Integer> hobbyIds) {
+        if (currentUser == null) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED).build();
+        }
         userHobbyService.updateUserHobbies(currentUser.getId(), hobbyIds);
         return ResponseEntity.ok().build();
     }

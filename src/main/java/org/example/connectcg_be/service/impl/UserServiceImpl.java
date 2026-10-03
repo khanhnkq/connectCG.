@@ -10,8 +10,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -49,10 +52,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public List<UserProfileDTO> getAllUser() {
-        List<User> users = userRepository.findAll();
-        return users.stream()
-                .map(this::mapToDTO)
-                .collect(Collectors.toList());
+        return mapToDTOList(userRepository.findAll());
     }
 
     @Override
@@ -60,7 +60,85 @@ public class UserServiceImpl implements UserService {
             org.springframework.data.domain.Pageable pageable) {
         String k = (keyword == null || keyword.trim().isEmpty()) ? null : keyword.trim();
         String r = (role == null || role.trim().isEmpty()) ? null : role.trim();
-        return userRepository.findByFilters(k, r, pageable).map(this::mapToDTO);
+        org.springframework.data.domain.Page<User> usersPage = userRepository.findByFilters(k, r, pageable);
+        List<UserProfileDTO> dtos = mapToDTOList(usersPage.getContent());
+        return new org.springframework.data.domain.PageImpl<>(dtos, pageable, usersPage.getTotalElements());
+    }
+
+    private List<UserProfileDTO> mapToDTOList(List<User> users) {
+        if (users == null || users.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Integer> userIds = users.stream().map(User::getId).toList();
+
+        Map<Integer, UserProfile> profileMap = userProfileRepository.findAllByUserIdIn(userIds).stream()
+                .filter(p -> p.getUser() != null)
+                .collect(Collectors.toMap(p -> p.getUser().getId(), Function.identity(), (a, b) -> a));
+
+        Map<Integer, UserAvatar> avatarMap = userAvatarRepository.findCurrentByUserIds(userIds).stream()
+                .filter(ua -> ua.getUser() != null)
+                .collect(Collectors.toMap(ua -> ua.getUser().getId(), Function.identity(), (a, b) -> a));
+
+        Map<Integer, UserCover> coverMap = userCoverRepository.findCurrentByUserIds(userIds).stream()
+                .filter(uc -> uc.getUser() != null)
+                .collect(Collectors.toMap(uc -> uc.getUser().getId(), Function.identity(), (a, b) -> a));
+
+        Map<Integer, Integer> postCountMap = new HashMap<>();
+        for (Object[] row : postRepository.countPostsByAuthorIds(userIds)) {
+            if (row != null && row.length >= 2 && row[0] != null && row[1] != null) {
+                postCountMap.put((Integer) row[0], ((Number) row[1]).intValue());
+            }
+        }
+
+        Map<Integer, Integer> friendCountMap = new HashMap<>();
+        for (Object[] row : friendRepository.countFriendsByUserIds(userIds)) {
+            if (row != null && row.length >= 2 && row[0] != null && row[1] != null) {
+                friendCountMap.put((Integer) row[0], ((Number) row[1]).intValue());
+            }
+        }
+
+        return users.stream().map(user -> {
+            UserProfileDTO dto = new UserProfileDTO();
+            dto.setUserId(user.getId());
+            dto.setUsername(user.getUsername());
+            dto.setEmail(user.getEmail());
+            dto.setRole(user.getRole());
+            dto.setIsLocked(user.getIsLocked());
+            dto.setLockedUntil(user.getLockedUntil());
+            dto.setPermanentLocked(user.getPermanentLocked());
+
+            UserProfile profile = profileMap.get(user.getId());
+            if (profile != null) {
+                dto.setFullName(profile.getFullName());
+                dto.setDateOfBirth(profile.getDateOfBirth());
+                dto.setGender(profile.getGender());
+                dto.setBio(profile.getBio());
+                dto.setOccupation(profile.getOccupation());
+                dto.setMaritalStatus(profile.getMaritalStatus());
+                dto.setLookingFor(profile.getLookingFor());
+
+                if (profile.getCityCode() != null) {
+                    dto.setCityCode(profile.getCityCode());
+                    dto.setCityName(profile.getCityName());
+                }
+            }
+
+            UserAvatar currentAvatar = avatarMap.get(user.getId());
+            if (currentAvatar != null && currentAvatar.getMedia() != null) {
+                dto.setCurrentAvatarUrl(currentAvatar.getMedia().getUrl());
+            }
+
+            UserCover currentCover = coverMap.get(user.getId());
+            if (currentCover != null && currentCover.getMedia() != null) {
+                dto.setCurrentCoverUrl(currentCover.getMedia().getUrl());
+            }
+
+            dto.setPostsCount(postCountMap.getOrDefault(user.getId(), 0));
+            dto.setFriendsCount(friendCountMap.getOrDefault(user.getId(), 0));
+
+            return dto;
+        }).toList();
     }
 
     @Override
@@ -181,6 +259,9 @@ public class UserServiceImpl implements UserService {
 
         boolean locked = !Boolean.TRUE.equals(user.getIsLocked());
         user.setIsLocked(locked);
+        if (locked) {
+            user.setAuthVersion(user.getAuthVersion() == null ? 1 : user.getAuthVersion() + 1);
+        }
         userRepository.save(user);
 
         if (locked) {
@@ -201,6 +282,7 @@ public class UserServiceImpl implements UserService {
         }
 
         user.setIsDeleted(true);
+        user.setAuthVersion(user.getAuthVersion() == null ? 1 : user.getAuthVersion() + 1);
         userRepository.save(user);
 
         sendUserEvent(user.getUsername(), "DELETE", "Tài khoản của bạn đã bị xóa");

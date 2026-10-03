@@ -14,5 +14,7 @@ public class ReportResponse {
     private String reporterUsername;
     private String reviewerUsername;
     private Integer groupId; // Added for frontend navigation
+    private String adminNote;
     private Instant createdAt;
+    private Instant resolvedAt;
 }

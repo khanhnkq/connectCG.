@@ -64,8 +64,8 @@ public class ReportController {
     // =========================
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Report> getReportDetail(@PathVariable Integer id) {
-        return ResponseEntity.ok(reportService.getReportById(id));
+    public ResponseEntity<org.example.connectcg_be.dto.ReportResponse> getReportDetail(@PathVariable Integer id) {
+        return ResponseEntity.ok(reportService.getReportResponseById(id));
     }
 
     // =========================
@@ -75,8 +75,10 @@ public class ReportController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> updateReportStatus(
             @PathVariable Integer id,
-            @RequestBody ReportAdminUpdateRequest request) {
-        reportService.updateReport(id, request, "admin");
+            @RequestBody ReportAdminUpdateRequest request,
+            Principal principal) {
+        String adminUsername = (principal != null && principal.getName() != null) ? principal.getName() : "admin";
+        reportService.updateReport(id, request, adminUsername);
         return ResponseEntity.ok("Report updated");
     }
 }

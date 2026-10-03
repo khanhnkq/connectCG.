@@ -8,7 +8,11 @@ import java.util.List;
 public interface NotificationService {
     List<TungNotificationDTO> getMyNotifications(Integer userId);
 
+    List<TungNotificationDTO> getMyNotifications(Integer userId, int page, int size);
+
     void markAsRead(Integer notificationId, Integer userId);
+
+    void markAllAsRead(Integer userId);
 
     void deleteNotification(Integer notificationId, Integer userId);
 

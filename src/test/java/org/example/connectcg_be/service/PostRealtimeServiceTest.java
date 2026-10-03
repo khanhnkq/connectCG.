@@ -54,4 +54,30 @@ class PostRealtimeServiceTest {
         verify(publisher).sendToTopic("/topic/posts/10/comments", event);
         verify(publisher, never()).sendToTopic(eq("/topic/comments"), any());
     }
+
+    @Test
+    void publicPostCommentPublishesToSharedPostsTopic() {
+        Post post = new Post();
+        post.setId(10);
+        post.setVisibility("PUBLIC");
+        CommentEventDTO event = new CommentEventDTO();
+
+        realtimeService.publishCommentEvent(post, event);
+
+        verify(publisher).sendToTopic("/topic/posts/10/comments", event);
+        verify(publisher).sendToTopic("/topic/posts", event);
+    }
+
+    @Test
+    void publicPostReactionPublishesToSharedPostsTopic() {
+        Post post = new Post();
+        post.setId(10);
+        post.setVisibility("PUBLIC");
+        org.example.connectcg_be.dto.ReactionEventDTO event = new org.example.connectcg_be.dto.ReactionEventDTO();
+
+        realtimeService.publishReactionEvent(post, event);
+
+        verify(publisher).sendToTopic("/topic/posts/10/reactions", event);
+        verify(publisher).sendToTopic("/topic/posts", event);
+    }
 }

@@ -12,6 +12,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Transactional;
 
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +24,7 @@ import java.util.function.Function;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class ChatRoomServiceImpl implements ChatRoomService {
 
@@ -86,20 +90,27 @@ public class ChatRoomServiceImpl implements ChatRoomService {
                 return convertToDTO(doubleCheck.get(), user1.getId());
             }
 
-            ChatRoom room = new ChatRoom();
-            room.setType("DIRECT");
-            room.setCanonicalPairKey(pairKey);
-            room.setFirebaseRoomKey(UUID.randomUUID().toString());
-            room.setCreatedBy(user1);
-            room.setCreatedAt(Instant.now());
-            room.setIsActive(true);
-            room = chatRoomRepository.save(room);
+            try {
+                ChatRoom room = new ChatRoom();
+                room.setType("DIRECT");
+                room.setCanonicalPairKey(pairKey);
+                room.setFirebaseRoomKey(UUID.randomUUID().toString());
+                room.setCreatedBy(user1);
+                room.setCreatedAt(Instant.now());
+                room.setIsActive(true);
+                room = chatRoomRepository.save(room);
 
-            // Add members
-            addMember(room, user1, "ADMIN");
-            addMember(room, user2, "MEMBER");
+                // Add members
+                addMember(room, user1, "ADMIN");
+                addMember(room, user2, "MEMBER");
 
-            return convertToDTO(room, user1.getId());
+                return convertToDTO(room, user1.getId());
+            } catch (DataIntegrityViolationException e) {
+                log.warn("Concurrent creation detected for direct chat pairKey {}: {}", pairKey, e.getMessage());
+                return chatRoomRepository.findByCanonicalPairKey(pairKey)
+                        .map(r -> convertToDTO(r, user1.getId()))
+                        .orElseThrow(() -> e);
+            }
         }
     }
 

@@ -18,8 +18,11 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -304,9 +307,46 @@ public class GroupServiceImpl implements GroupService {
     public List<TungGroupMemberDTO> getMembers(Integer groupId, Integer requesterId) {
         // Access is already checked by @PreAuthorize in GroupController
         // Logically we only return accepted members for standard view
-        return groupMemberRepository.findAllByIdGroupIdAndStatus(groupId, "ACCEPTED").stream()
-                .map(this::mapToMemberDTO)
+        return mapToMemberDTOList(groupMemberRepository.findAllByIdGroupIdAndStatus(groupId, "ACCEPTED"));
+    }
+
+    private List<TungGroupMemberDTO> mapToMemberDTOList(List<GroupMember> members) {
+        if (members == null || members.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Integer> userIds = members.stream()
+                .map(m -> m.getUser().getId())
+                .distinct()
                 .collect(Collectors.toList());
+
+        Map<Integer, UserAvatar> avatarMap = userAvatarRepository.findCurrentByUserIds(userIds).stream()
+                .filter(ua -> ua.getUser() != null)
+                .collect(Collectors.toMap(ua -> ua.getUser().getId(), Function.identity(), (a, b) -> a));
+
+        Map<Integer, UserProfile> profileMap = userProfileRepository.findAllByUserIdIn(userIds).stream()
+                .filter(p -> p.getUser() != null)
+                .collect(Collectors.toMap(p -> p.getUser().getId(), Function.identity(), (a, b) -> a));
+
+        return members.stream().map(member -> {
+            Integer uid = member.getUser().getId();
+            UserAvatar avatar = avatarMap.get(uid);
+            String avatarUrl = (avatar != null && avatar.getMedia() != null) ? avatar.getMedia().getUrl()
+                    : "https://cdn-icons-png.flaticon.com/512/149/149071.png";
+
+            UserProfile profile = profileMap.get(uid);
+            String fullName = profile != null ? profile.getFullName() : member.getUser().getUsername();
+
+            TungGroupMemberDTO dto = new TungGroupMemberDTO();
+            dto.setUserId(uid);
+            dto.setUsername(member.getUser().getUsername());
+            dto.setFullName(fullName);
+            dto.setAvatarUrl(avatarUrl);
+            dto.setRole(member.getRole());
+            dto.setStatus(member.getStatus());
+            dto.setJoinedAt(member.getJoinedAt());
+            return dto;
+        }).collect(Collectors.toList());
     }
 
     private TungGroupMemberDTO mapToMemberDTO(GroupMember member) {
@@ -389,20 +429,42 @@ public class GroupServiceImpl implements GroupService {
         group.setIsDeleted(true);
         groupRepository.save(group);
 
-        // Fetch all current members to notify
+        // Fetch all current members to notify asynchronously via batch fanout
         List<GroupMember> members = groupMemberRepository.findAllByIdGroupIdAndStatus(groupId, "ACCEPTED");
-        for (GroupMember m : members) {
-            TungNotificationDTO noti = new TungNotificationDTO();
-            noti.setType("GROUP_DELETED");
-            noti.setTargetType("GROUP");
-            noti.setTargetId(groupId);
+        if (!members.isEmpty()) {
+            Integer ownerId = group.getOwner() != null ? group.getOwner().getId() : null;
 
-            if (m.getUser().getId().equals(group.getOwner().getId())) {
-                noti.setContent("Nhóm '" + group.getName() + "' của bạn đã bị xóa.");
-            } else {
-                noti.setContent("Nhóm '" + group.getName() + "' đã bị xóa bởi quản trị viên.");
+            List<User> ownerRecipients = new ArrayList<>();
+            List<User> memberRecipients = new ArrayList<>();
+
+            for (GroupMember m : members) {
+                User u = m.getUser();
+                if (u != null) {
+                    if (ownerId != null && ownerId.equals(u.getId())) {
+                        ownerRecipients.add(u);
+                    } else {
+                        memberRecipients.add(u);
+                    }
+                }
             }
-            notificationService.sendNotification(noti, m.getUser(), requester);
+
+            if (!ownerRecipients.isEmpty()) {
+                TungNotificationDTO ownerNoti = new TungNotificationDTO();
+                ownerNoti.setType("GROUP_DELETED");
+                ownerNoti.setTargetType("GROUP");
+                ownerNoti.setTargetId(groupId);
+                ownerNoti.setContent("Nhóm '" + group.getName() + "' của bạn đã bị xóa.");
+                notificationService.sendNotificationBatch(ownerNoti, ownerRecipients, requester);
+            }
+
+            if (!memberRecipients.isEmpty()) {
+                TungNotificationDTO memberNoti = new TungNotificationDTO();
+                memberNoti.setType("GROUP_DELETED");
+                memberNoti.setTargetType("GROUP");
+                memberNoti.setTargetId(groupId);
+                memberNoti.setContent("Nhóm '" + group.getName() + "' đã bị xóa bởi quản trị viên.");
+                notificationService.sendNotificationBatch(memberNoti, memberRecipients, requester);
+            }
         }
     }
 
@@ -779,9 +841,7 @@ public class GroupServiceImpl implements GroupService {
         groupRepository.findByIdAndIsDeletedFalse(groupId)
                 .orElseThrow(() -> new RuntimeException("Nhóm của bạn không tồn tại"));
 
-        return groupMemberRepository.findAllByIdGroupIdAndStatus(groupId, "REQUESTED").stream()
-                .map(this::mapToMemberDTO)
-                .collect(Collectors.toList());
+        return mapToMemberDTOList(groupMemberRepository.findAllByIdGroupIdAndStatus(groupId, "REQUESTED"));
     }
 
     @Override
@@ -994,9 +1054,7 @@ public class GroupServiceImpl implements GroupService {
             throw new RuntimeException("Bạn không có quyền xem danh sách thành viên bị cấm");
         }
 
-        return groupMemberRepository.findAllByIdGroupIdAndStatus(groupId, "BANNED").stream()
-                .map(this::mapToMemberDTO)
-                .collect(Collectors.toList());
+        return mapToMemberDTOList(groupMemberRepository.findAllByIdGroupIdAndStatus(groupId, "BANNED"));
     }
 
     @Override

@@ -13,7 +13,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ReportServiceImpl implements ReportService {
@@ -33,48 +36,79 @@ public class ReportServiceImpl implements ReportService {
 
     @Override
     public List<ReportResponse> getAllReports() {
-        return reportRepository.findAll().stream().map(this::mapToDto).toList();
+        return mapToDtoList(reportRepository.findAll());
     }
 
     @Override
     public List<ReportResponse> getReportsByStatus(String status) {
-        return reportRepository.findByStatus(status.toUpperCase())
-                .stream().map(this::mapToDto).toList();
+        return mapToDtoList(reportRepository.findByStatus(status.toUpperCase()));
     }
 
-    private ReportResponse mapToDto(Report report) {
-        ReportResponse dto = new ReportResponse();
-        dto.setId(report.getId());
-        dto.setTargetType(report.getTargetType());
-        dto.setTargetId(report.getTargetId());
-        dto.setReason(report.getReason());
-        dto.setStatus(report.getStatus());
-        if ("GROUP".equals(report.getTargetType())) {
-            dto.setGroupId(report.getTargetId());
-        } else if ("POST".equals(report.getTargetType())) {
-            postRepository.findById(report.getTargetId()).ifPresent(post -> {
+    private List<ReportResponse> mapToDtoList(List<Report> reports) {
+        if (reports == null || reports.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Integer> postTargetIds = reports.stream()
+                .filter(r -> "POST".equals(r.getTargetType()) && r.getTargetId() != null)
+                .map(Report::getTargetId)
+                .distinct()
+                .toList();
+
+        Map<Integer, Integer> postGroupMap = new HashMap<>();
+        if (!postTargetIds.isEmpty()) {
+            postRepository.findAllById(postTargetIds).forEach(post -> {
                 if (post.getGroup() != null) {
-                    dto.setGroupId(post.getGroup().getId());
+                    postGroupMap.put(post.getId(), post.getGroup().getId());
                 }
             });
         }
 
-        dto.setCreatedAt(report.getCreatedAt());
+        return reports.stream().map(report -> {
+            ReportResponse dto = new ReportResponse();
+            dto.setId(report.getId());
+            dto.setTargetType(report.getTargetType());
+            dto.setTargetId(report.getTargetId());
+            dto.setReason(report.getReason());
+            dto.setStatus(report.getStatus());
 
-        if (report.getReporter() != null) {
-            dto.setReporterUsername(report.getReporter().getUsername());
-            dto.setReporterId(report.getReporter().getId());
+            if ("GROUP".equals(report.getTargetType())) {
+                dto.setGroupId(report.getTargetId());
+            } else if ("POST".equals(report.getTargetType())) {
+                dto.setGroupId(postGroupMap.get(report.getTargetId()));
+            }
+
+            dto.setAdminNote(report.getAdminNote());
+            dto.setCreatedAt(report.getCreatedAt());
+            dto.setResolvedAt(report.getResolvedAt());
+
+            if (report.getReporter() != null) {
+                dto.setReporterUsername(report.getReporter().getUsername());
+                dto.setReporterId(report.getReporter().getId());
+            }
+            if (report.getReviewer() != null) {
+                dto.setReviewerUsername(report.getReviewer().getUsername());
+            }
+            return dto;
+        }).toList();
+    }
+
+    private ReportResponse mapToDto(Report report) {
+        if (report == null) {
+            return null;
         }
-        if (report.getReviewer() != null) {
-            dto.setReviewerUsername(report.getReviewer().getUsername());
-        }
-        return dto;
+        return mapToDtoList(List.of(report)).get(0);
     }
 
     @Override
     public Report getReportById(Integer id) {
         return reportRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Report not found"));
+    }
+
+    @Override
+    public ReportResponse getReportResponseById(Integer id) {
+        return mapToDto(getReportById(id));
     }
 
     @Override
@@ -135,29 +169,34 @@ public class ReportServiceImpl implements ReportService {
         }
     }
 
+    private org.springframework.data.domain.Page<ReportResponse> mapReportPage(
+            org.springframework.data.domain.Page<Report> page) {
+        List<ReportResponse> dtos = mapToDtoList(page.getContent());
+        return new org.springframework.data.domain.PageImpl<>(dtos, page.getPageable(), page.getTotalElements());
+    }
+
     // Paginated methods
     @Override
     public org.springframework.data.domain.Page<ReportResponse> getReportsPaginated(
             org.springframework.data.domain.Pageable pageable) {
-        return reportRepository.findAll(pageable).map(this::mapToDto);
+        return mapReportPage(reportRepository.findAll(pageable));
     }
 
     @Override
     public org.springframework.data.domain.Page<ReportResponse> getReportsByStatusPaginated(String status,
             org.springframework.data.domain.Pageable pageable) {
-        return reportRepository.findByStatus(status.toUpperCase(), pageable).map(this::mapToDto);
+        return mapReportPage(reportRepository.findByStatus(status.toUpperCase(), pageable));
     }
 
     @Override
     public org.springframework.data.domain.Page<ReportResponse> getReportsByTargetTypePaginated(String targetType,
             org.springframework.data.domain.Pageable pageable) {
-        return reportRepository.findByTargetType(targetType.toUpperCase(), pageable).map(this::mapToDto);
+        return mapReportPage(reportRepository.findByTargetType(targetType.toUpperCase(), pageable));
     }
 
     @Override
     public org.springframework.data.domain.Page<ReportResponse> getReportsByTargetTypeAndStatusPaginated(
             String targetType, String status, org.springframework.data.domain.Pageable pageable) {
-        return reportRepository.findByTargetTypeAndStatus(targetType.toUpperCase(), status.toUpperCase(), pageable)
-                .map(this::mapToDto);
+        return mapReportPage(reportRepository.findByTargetTypeAndStatus(targetType.toUpperCase(), status.toUpperCase(), pageable));
     }
 }

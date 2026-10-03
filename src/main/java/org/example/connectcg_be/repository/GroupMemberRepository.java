@@ -2,6 +2,7 @@ package org.example.connectcg_be.repository;
 
 import org.example.connectcg_be.entity.GroupMember;
 import org.example.connectcg_be.entity.GroupMemberId;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -15,6 +16,7 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, GroupM
 
     List<GroupMember> findAllByIdGroupId(Integer groupId);
 
+    @EntityGraph(attributePaths = {"user"})
     List<GroupMember> findAllByIdGroupIdAndStatus(Integer groupId, String status);
 
     long countByIdGroupIdAndStatus(Integer groupId, String status);

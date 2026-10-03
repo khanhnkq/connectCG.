@@ -47,10 +47,16 @@ public class PostRealtimeService {
 
     public void publishCommentEvent(Post post, CommentEventDTO event) {
         publisher.sendToTopic("/topic/posts/" + post.getId() + "/comments", event);
+        if (post != null && post.getGroup() == null && "PUBLIC".equals(post.getVisibility())) {
+            publisher.sendToTopic("/topic/posts", event);
+        }
     }
 
     public void publishReactionEvent(Post post, ReactionEventDTO event) {
         publisher.sendToTopic("/topic/posts/" + post.getId() + "/reactions", event);
+        if (post != null && post.getGroup() == null && "PUBLIC".equals(post.getVisibility())) {
+            publisher.sendToTopic("/topic/posts", event);
+        }
     }
 
     public void publishMembershipEvent(Integer groupId, MembershipEventDTO event) {

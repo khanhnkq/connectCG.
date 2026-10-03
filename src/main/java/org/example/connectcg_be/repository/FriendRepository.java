@@ -49,6 +49,14 @@ public interface FriendRepository extends JpaRepository<Friend, FriendId> {
     @Query("DELETE FROM Friend f WHERE (f.user.id = :userId AND f.friend.id = :friendId) OR (f.user.id = :friendId AND f.friend.id = :userId)")
     void removeFriendship(@Param("userId") Integer userId, @Param("friendId") Integer friendId);
 
+    @Query("SELECT f.user.id, count(f) FROM Friend f WHERE f.user.id IN :userIds GROUP BY f.user.id")
+    List<Object[]> countFriendsByUserIds(@Param("userIds") java.util.Collection<Integer> userIds);
+
+    @Query("SELECT f.friend.id FROM Friend f WHERE f.user.id = :viewerId AND f.friend.id IN :targetIds")
+    java.util.Set<Integer> findFriendIdsByViewerIdAndFriendIdIn(
+            @Param("viewerId") Integer viewerId,
+            @Param("targetIds") java.util.Collection<Integer> targetIds);
+
     @Query("""
               select f.friend.id from Friend f where f.user.id = :userId
               union

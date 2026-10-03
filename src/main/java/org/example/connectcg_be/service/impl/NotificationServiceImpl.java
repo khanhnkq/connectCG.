@@ -6,6 +6,7 @@ import org.example.connectcg_be.dto.TungNotificationDTO;
 import org.example.connectcg_be.entity.Notification;
 import org.example.connectcg_be.entity.User;
 import org.example.connectcg_be.entity.UserAvatar;
+import org.example.connectcg_be.entity.UserProfile;
 import org.example.connectcg_be.repository.NotificationRepository;
 import org.example.connectcg_be.repository.UserAvatarRepository;
 import org.example.connectcg_be.repository.UserProfileRepository;
@@ -14,13 +15,14 @@ import org.example.connectcg_be.queue.dto.NotificationFanoutMessage;
 import org.example.connectcg_be.queue.producer.NotificationQueueProducer;
 import org.example.connectcg_be.service.NotificationService;
 import org.example.connectcg_be.realtime.RealtimeEventPublisher;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -38,10 +40,20 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     @Transactional(readOnly = true)
     public List<TungNotificationDTO> getMyNotifications(Integer userId) {
-        return notificationRepository.findAllByUserIdOrderByCreatedAtDesc(userId)
-                .stream()
-                .map(this::mapToDTO)
-                .collect(Collectors.toList());
+        return getMyNotifications(userId, 0, 50);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TungNotificationDTO> getMyNotifications(Integer userId, int page, int size) {
+        if (userId == null) {
+            return List.of();
+        }
+        int safePage = Math.max(0, page);
+        int safeSize = (size <= 0 || size > 100) ? 20 : size;
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+        Page<Notification> notificationPage = notificationRepository.findAllByUserIdOrderByCreatedAtDesc(userId, pageable);
+        return mapNotificationsToDTOs(notificationPage.getContent());
     }
 
     @Override
@@ -56,6 +68,16 @@ public class NotificationServiceImpl implements NotificationService {
         }
         notification.setIsRead(true);
         notificationRepository.save(notification);
+    }
+
+    @Override
+    @Transactional
+    public void markAllAsRead(Integer userId) {
+        if (userId == null) {
+            return;
+        }
+        int updated = notificationRepository.markAllAsReadByUserId(userId);
+        log.info("mark_all_as_read_success userId={} updatedCount={}", userId, updated);
     }
 
     @Override
@@ -292,5 +314,70 @@ public class NotificationServiceImpl implements NotificationService {
             }
         }
         log.info("fanout_notifications_completed totalRecipients={}", recipientUserIds.size());
+    }
+
+    private List<TungNotificationDTO> mapNotificationsToDTOs(List<Notification> notifications) {
+        if (notifications == null || notifications.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Set<Integer> actorIds = notifications.stream()
+                .map(Notification::getActor)
+                .filter(Objects::nonNull)
+                .map(User::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<Integer, String> actorNameMap = new HashMap<>();
+        Map<Integer, String> actorAvatarMap = new HashMap<>();
+
+        if (!actorIds.isEmpty()) {
+            List<UserProfile> profiles = userProfileRepository.findAllByUserIdIn(actorIds);
+            for (UserProfile profile : profiles) {
+                if (profile.getUser() != null && profile.getUser().getId() != null) {
+                    String fullName = profile.getFullName();
+                    if (fullName != null && !fullName.isBlank()) {
+                        actorNameMap.put(profile.getUser().getId(), fullName);
+                    }
+                }
+            }
+
+            List<UserAvatar> avatars = userAvatarRepository.findCurrentByUserIds(actorIds);
+            for (UserAvatar avatar : avatars) {
+                if (avatar.getUser() != null && avatar.getUser().getId() != null && avatar.getMedia() != null) {
+                    actorAvatarMap.put(avatar.getUser().getId(), avatar.getMedia().getUrl());
+                }
+            }
+        }
+
+        String defaultSystemAvatar = "https://cdn-icons-png.flaticon.com/512/149/149071.png";
+
+        List<TungNotificationDTO> dtos = new ArrayList<>(notifications.size());
+        for (Notification n : notifications) {
+            TungNotificationDTO dto = new TungNotificationDTO();
+            dto.setId(n.getId());
+            dto.setContent(n.getContent());
+            dto.setType(n.getType());
+            dto.setTargetType(n.getTargetType());
+            dto.setTargetId(n.getTargetId());
+            dto.setIsRead(n.getIsRead() != null ? n.getIsRead() : false);
+            dto.setCreatedAt(n.getCreatedAt());
+
+            User actor = n.getActor();
+            if (actor != null) {
+                String name = actorNameMap.get(actor.getId());
+                if (name == null || name.isBlank()) {
+                    name = actor.getUsername();
+                }
+                dto.setActorName(name);
+                dto.setActorAvatar(actorAvatarMap.getOrDefault(actor.getId(), defaultSystemAvatar));
+            } else {
+                dto.setActorName("Hệ thống");
+                dto.setActorAvatar(defaultSystemAvatar);
+            }
+            dtos.add(dto);
+        }
+
+        return dtos;
     }
 }

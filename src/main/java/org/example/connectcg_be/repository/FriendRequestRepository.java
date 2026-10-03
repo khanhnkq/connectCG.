@@ -22,6 +22,16 @@ public interface FriendRequestRepository extends JpaRepository<FriendRequest, In
     // Tìm lời mời để hủy
     Optional<FriendRequest> findBySenderIdAndReceiverIdAndStatus(Integer senderId, Integer receiverId, String status);
 
+    @org.springframework.data.jpa.repository.Query("SELECT fr.receiver.id FROM FriendRequest fr WHERE fr.sender.id = :senderId AND fr.receiver.id IN :receiverIds AND fr.status = 'PENDING'")
+    java.util.Set<Integer> findPendingReceiverIds(
+            @org.springframework.data.repository.query.Param("senderId") Integer senderId,
+            @org.springframework.data.repository.query.Param("receiverIds") java.util.Collection<Integer> receiverIds);
+
+    @org.springframework.data.jpa.repository.Query("SELECT fr.sender.id FROM FriendRequest fr WHERE fr.receiver.id = :receiverId AND fr.sender.id IN :senderIds AND fr.status = 'PENDING'")
+    java.util.Set<Integer> findPendingSenderIds(
+            @org.springframework.data.repository.query.Param("receiverId") Integer receiverId,
+            @org.springframework.data.repository.query.Param("senderIds") java.util.Collection<Integer> senderIds);
+
     @org.springframework.data.jpa.repository.Modifying
     @org.springframework.data.jpa.repository.Query("UPDATE FriendRequest fr SET fr.status = :newStatus, fr.respondedAt = :now WHERE fr.id = :id AND fr.receiver.id = :receiverId AND fr.status = 'PENDING'")
     int updateStatusIfPending(

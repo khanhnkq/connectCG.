@@ -34,6 +34,8 @@ class CommentP2BusinessRulesTest {
     @Mock private UserAvatarRepository userAvatarRepository;
     @Mock private PostAccessPolicy postAccessPolicy;
     @Mock private PostRealtimeService postRealtimeService;
+    @Mock private NotificationService notificationService;
+    @Mock private MediaService mediaService;
 
     @InjectMocks private CommentServiceImpl commentService;
 
@@ -64,6 +66,38 @@ class CommentP2BusinessRulesTest {
         assertTrue(child.getIsDeleted());
         assertTrue(grandchild.getIsDeleted());
         verify(postRepository).adjustCommentCount(10, -3);
+    }
+
+    @Test
+    void createComment_replyToPostAuthorsComment_sendsOnlyCommentReplyNotification() {
+        Post post = post(10); // author is user(1)
+        Comment parent = comment(20, post, null);
+        parent.setAuthor(user(1)); // author of parent comment is also user(1)
+
+        CreateCommentRequest request = new CreateCommentRequest();
+        request.setContent("This is a reply to author");
+        request.setParentId(20);
+
+        when(postRepository.findById(10)).thenReturn(Optional.of(post));
+        when(userRepository.findById(2)).thenReturn(Optional.of(user(2))); // commenter is user(2)
+        when(commentRepository.findByIdForUpdate(20)).thenReturn(Optional.of(parent));
+        when(commentRepository.save(org.mockito.ArgumentMatchers.any(Comment.class)))
+                .thenAnswer(inv -> {
+                    Comment c = inv.getArgument(0);
+                    c.setId(99);
+                    return c;
+                });
+        when(postRepository.findCommentCountById(10)).thenReturn(2);
+
+        commentService.createComment(10, 2, request);
+
+        org.mockito.ArgumentCaptor<org.example.connectcg_be.entity.Notification> notiCaptor =
+                org.mockito.ArgumentCaptor.forClass(org.example.connectcg_be.entity.Notification.class);
+        verify(notificationService, org.mockito.Mockito.times(1)).sendNotification(notiCaptor.capture());
+
+        org.example.connectcg_be.entity.Notification sentNotification = notiCaptor.getValue();
+        org.junit.jupiter.api.Assertions.assertEquals("COMMENT_REPLY", sentNotification.getType());
+        org.junit.jupiter.api.Assertions.assertEquals(1, sentNotification.getUser().getId());
     }
 
     private Post post(Integer id) {

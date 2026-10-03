@@ -36,6 +36,8 @@ public class ReactionServiceImpl implements ReactionService {
     @Autowired
     private NotificationService notificationService;
     @Autowired
+    private org.example.connectcg_be.repository.NotificationRepository notificationRepository;
+    @Autowired
     private org.example.connectcg_be.repository.UserProfileRepository userProfileRepository;
     @Autowired
     private org.example.connectcg_be.service.PostAccessPolicy postAccessPolicy;
@@ -73,15 +75,28 @@ public class ReactionServiceImpl implements ReactionService {
 
             reactionRepository.save(reaction);
 
-            // Gửi thông báo cho chủ bài viết
+            // Gửi thông báo cho chủ bài viết (chống spam rác trong vòng 5 phút)
             if (!userId.equals(post.getAuthor().getId())) {
-                Notification notification = new Notification();
-                notification.setUser(post.getAuthor());
-                notification.setActor(user);
-                notification.setType("POST_REACTION");
-                notification.setTargetType("POST");
-                notification.setTargetId(postId);
-                notification.setIsRead(false);
+                java.time.Instant fiveMinutesAgo = java.time.Instant.now().minus(java.time.Duration.ofMinutes(5));
+                Optional<Notification> existingNoti = notificationRepository != null
+                        ? notificationRepository.findFirstByUserIdAndActorIdAndTypeAndTargetTypeAndTargetIdOrderByCreatedAtDesc(
+                                post.getAuthor().getId(), userId, "POST_REACTION", "POST", postId)
+                        : Optional.empty();
+
+                Notification notification;
+                if (existingNoti.isPresent() && (existingNoti.get().getCreatedAt() == null || existingNoti.get().getCreatedAt().isAfter(fiveMinutesAgo))) {
+                    notification = existingNoti.get();
+                    notification.setCreatedAt(java.time.Instant.now());
+                    notification.setIsRead(false);
+                } else {
+                    notification = new Notification();
+                    notification.setUser(post.getAuthor());
+                    notification.setActor(user);
+                    notification.setType("POST_REACTION");
+                    notification.setTargetType("POST");
+                    notification.setTargetId(postId);
+                    notification.setIsRead(false);
+                }
 
                 String actorName = userProfileRepository.findByUserId(userId)
                         .map(org.example.connectcg_be.entity.UserProfile::getFullName)

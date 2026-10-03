@@ -126,6 +126,155 @@ class WebSocketAuthInterceptorTest {
         assertThrows(AccessDeniedException.class, () -> securedInterceptor.preSend(message, mockChannel()));
     }
 
+    @Test
+    void connectWithNativeAuthorizationBearerHeaderSucceeds() {
+        org.example.connectcg_be.security.AccessTokenRevocationService revocationService =
+                mock(org.example.connectcg_be.security.AccessTokenRevocationService.class);
+        org.example.connectcg_be.security.JwtTokenProvider tokenProvider =
+                mock(org.example.connectcg_be.security.JwtTokenProvider.class);
+        org.example.connectcg_be.security.CustomUserDetailsService customUserDetailsService =
+                mock(org.example.connectcg_be.security.CustomUserDetailsService.class);
+        WebSocketAuthInterceptor securedInterceptor =
+                new WebSocketAuthInterceptor(authorizationService, revocationService, tokenProvider, customUserDetailsService);
+
+        UserPrincipal user = new UserPrincipal(42, "john", "john@test.com", "pass", true, false, false, List.of(), 1);
+        when(tokenProvider.validateToken("valid-token")).thenReturn(true);
+        when(revocationService.isRevoked("valid-token")).thenReturn(false);
+        when(tokenProvider.getUserIdFromJWT("valid-token")).thenReturn(42);
+        when(customUserDetailsService.loadUserById(42)).thenReturn(user);
+        when(tokenProvider.getAuthVersion("valid-token")).thenReturn(1);
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
+        accessor.addNativeHeader("Authorization", "Bearer valid-token");
+        accessor.setLeaveMutable(true);
+        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        assertDoesNotThrow(() -> securedInterceptor.preSend(message, mockChannel()));
+    }
+
+    @Test
+    void connectWithNativeAccessTokenHeaderSucceeds() {
+        org.example.connectcg_be.security.AccessTokenRevocationService revocationService =
+                mock(org.example.connectcg_be.security.AccessTokenRevocationService.class);
+        org.example.connectcg_be.security.JwtTokenProvider tokenProvider =
+                mock(org.example.connectcg_be.security.JwtTokenProvider.class);
+        org.example.connectcg_be.security.CustomUserDetailsService customUserDetailsService =
+                mock(org.example.connectcg_be.security.CustomUserDetailsService.class);
+        WebSocketAuthInterceptor securedInterceptor =
+                new WebSocketAuthInterceptor(authorizationService, revocationService, tokenProvider, customUserDetailsService);
+
+        UserPrincipal user = new UserPrincipal(42, "john", "john@test.com", "pass", true, false, false, List.of(), 1);
+        when(tokenProvider.validateToken("valid-token")).thenReturn(true);
+        when(revocationService.isRevoked("valid-token")).thenReturn(false);
+        when(tokenProvider.getUserIdFromJWT("valid-token")).thenReturn(42);
+        when(customUserDetailsService.loadUserById(42)).thenReturn(user);
+        when(tokenProvider.getAuthVersion("valid-token")).thenReturn(1);
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
+        accessor.addNativeHeader("access_token", "valid-token");
+        accessor.setLeaveMutable(true);
+        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        assertDoesNotThrow(() -> securedInterceptor.preSend(message, mockChannel()));
+    }
+
+    @Test
+    void connectWithLockedAccountThrowsAccessDeniedException() {
+        org.example.connectcg_be.security.AccessTokenRevocationService revocationService =
+                mock(org.example.connectcg_be.security.AccessTokenRevocationService.class);
+        org.example.connectcg_be.security.JwtTokenProvider tokenProvider =
+                mock(org.example.connectcg_be.security.JwtTokenProvider.class);
+        org.example.connectcg_be.security.CustomUserDetailsService customUserDetailsService =
+                mock(org.example.connectcg_be.security.CustomUserDetailsService.class);
+        WebSocketAuthInterceptor securedInterceptor =
+                new WebSocketAuthInterceptor(authorizationService, revocationService, tokenProvider, customUserDetailsService);
+
+        UserPrincipal lockedUser = new UserPrincipal(42, "john", "john@test.com", "pass", true, true, false, List.of(), 1);
+        when(tokenProvider.validateToken("valid-token")).thenReturn(true);
+        when(revocationService.isRevoked("valid-token")).thenReturn(false);
+        when(tokenProvider.getUserIdFromJWT("valid-token")).thenReturn(42);
+        when(customUserDetailsService.loadUserById(42)).thenReturn(lockedUser);
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
+        accessor.addNativeHeader("Authorization", "Bearer valid-token");
+        accessor.setLeaveMutable(true);
+        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class, () -> securedInterceptor.preSend(message, mockChannel()));
+        org.junit.jupiter.api.Assertions.assertEquals("Account has been locked", ex.getMessage());
+    }
+
+    @Test
+    void subscribeWithLockedAccountInDatabaseThrowsAccessDeniedException() {
+        org.example.connectcg_be.security.AccessTokenRevocationService revocationService =
+                mock(org.example.connectcg_be.security.AccessTokenRevocationService.class);
+        org.example.connectcg_be.security.JwtTokenProvider tokenProvider =
+                mock(org.example.connectcg_be.security.JwtTokenProvider.class);
+        org.example.connectcg_be.security.CustomUserDetailsService customUserDetailsService =
+                mock(org.example.connectcg_be.security.CustomUserDetailsService.class);
+        WebSocketAuthInterceptor securedInterceptor =
+                new WebSocketAuthInterceptor(authorizationService, revocationService, tokenProvider, customUserDetailsService);
+
+        UserPrincipal activePrincipal = new UserPrincipal(42, "john", "john@test.com", "pass", true, false, false, List.of(), 1);
+        UserPrincipal lockedPrincipal = new UserPrincipal(42, "john", "john@test.com", "pass", true, true, false, List.of(), 1);
+
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(activePrincipal, null, List.of());
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        accessor.setUser(authentication);
+        accessor.setDestination("/topic/posts");
+        accessor.setSessionAttributes(new java.util.HashMap<>(Map.of(
+                HttpPrincipalHandshakeInterceptor.ACCESS_TOKEN_ATTRIBUTE, "token-123"
+        )));
+        accessor.setLeaveMutable(true);
+        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        when(tokenProvider.validateToken("token-123")).thenReturn(true);
+        when(revocationService.isRevoked("token-123")).thenReturn(false);
+        when(tokenProvider.getUserIdFromJWT("token-123")).thenReturn(42);
+        when(customUserDetailsService.loadUserById(42)).thenReturn(lockedPrincipal);
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class, () -> securedInterceptor.preSend(message, mockChannel()));
+        org.junit.jupiter.api.Assertions.assertEquals("Account has been locked", ex.getMessage());
+    }
+
+    @Test
+    void subscribeWithMismatchedAuthVersionThrowsAccessDeniedException() {
+        org.example.connectcg_be.security.AccessTokenRevocationService revocationService =
+                mock(org.example.connectcg_be.security.AccessTokenRevocationService.class);
+        org.example.connectcg_be.security.JwtTokenProvider tokenProvider =
+                mock(org.example.connectcg_be.security.JwtTokenProvider.class);
+        org.example.connectcg_be.security.CustomUserDetailsService customUserDetailsService =
+                mock(org.example.connectcg_be.security.CustomUserDetailsService.class);
+        WebSocketAuthInterceptor securedInterceptor =
+                new WebSocketAuthInterceptor(authorizationService, revocationService, tokenProvider, customUserDetailsService);
+
+        UserPrincipal activePrincipal = new UserPrincipal(42, "john", "john@test.com", "pass", true, false, false, List.of(), 1);
+        UserPrincipal updatedPrincipal = new UserPrincipal(42, "john", "john@test.com", "pass", true, false, false, List.of(), 2);
+
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(activePrincipal, null, List.of());
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        accessor.setUser(authentication);
+        accessor.setDestination("/topic/posts");
+        accessor.setSessionAttributes(new java.util.HashMap<>(Map.of(
+                HttpPrincipalHandshakeInterceptor.ACCESS_TOKEN_ATTRIBUTE, "token-123"
+        )));
+        accessor.setLeaveMutable(true);
+        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        when(tokenProvider.validateToken("token-123")).thenReturn(true);
+        when(revocationService.isRevoked("token-123")).thenReturn(false);
+        when(tokenProvider.getUserIdFromJWT("token-123")).thenReturn(42);
+        when(customUserDetailsService.loadUserById(42)).thenReturn(updatedPrincipal);
+        when(tokenProvider.getAuthVersion("token-123")).thenReturn(1);
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class, () -> securedInterceptor.preSend(message, mockChannel()));
+        org.junit.jupiter.api.Assertions.assertEquals("Session version expired", ex.getMessage());
+    }
+
     private Message<byte[]> message(StompCommand command, UsernamePasswordAuthenticationToken user, String destination) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
         accessor.setUser(user);

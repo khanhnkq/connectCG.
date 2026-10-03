@@ -10,6 +10,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+
 @Service
 @RequiredArgsConstructor
 public class FriendServiceImpl implements FriendService {
@@ -21,23 +25,40 @@ public class FriendServiceImpl implements FriendService {
     @Transactional(readOnly = true)
     public Page<FriendDTO> getFriends(Integer userId, Integer viewerId, String name, String gender, String cityCode, Pageable pageable) {
         Page<FriendDTO> friends = friendRepository.searchFriends(userId, name, gender, cityCode, pageable);
-        
+
+        if (friends.isEmpty() || viewerId == null) {
+            return friends;
+        }
+
+        List<Integer> targetIds = friends.getContent().stream()
+                .map(FriendDTO::getId)
+                .filter(id -> id != null && !viewerId.equals(id))
+                .distinct()
+                .toList();
+
+        Set<Integer> friendIds = targetIds.isEmpty() ? Collections.emptySet()
+                : friendRepository.findFriendIdsByViewerIdAndFriendIdIn(viewerId, targetIds);
+        Set<Integer> pendingSentIds = targetIds.isEmpty() ? Collections.emptySet()
+                : friendRequestRepository.findPendingReceiverIds(viewerId, targetIds);
+        Set<Integer> pendingReceivedIds = targetIds.isEmpty() ? Collections.emptySet()
+                : friendRequestRepository.findPendingSenderIds(viewerId, targetIds);
+
         // Populate relationship status relative to viewerId
         friends.forEach(friend -> {
             Integer targetId = friend.getId();
             if (viewerId.equals(targetId)) {
                 friend.setRelationshipStatus("SELF");
-            } else if (friendRepository.existsByUserIdAndFriendId(viewerId, targetId)) {
+            } else if (friendIds.contains(targetId)) {
                 friend.setRelationshipStatus("FRIEND");
-            } else if (friendRequestRepository.existsBySenderIdAndReceiverIdAndStatus(viewerId, targetId, "PENDING")) {
+            } else if (pendingSentIds.contains(targetId)) {
                 friend.setRelationshipStatus("PENDING");
-            } else if (friendRequestRepository.existsBySenderIdAndReceiverIdAndStatus(targetId, viewerId, "PENDING")) {
+            } else if (pendingReceivedIds.contains(targetId)) {
                 friend.setRelationshipStatus("WAITING"); // Or whatever status code for "Request Received"
             } else {
                 friend.setRelationshipStatus("STRANGER");
             }
         });
-        
+
         return friends;
     }
 

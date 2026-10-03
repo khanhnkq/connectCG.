@@ -1,5 +1,6 @@
 package org.example.connectcg_be.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
@@ -35,6 +36,7 @@ public class User {
     @Column(name = "email", nullable = false, length = 100)
     private String email;
 
+    @JsonIgnore
     @Size(max = 255)
     @NotNull
     @Column(name = "password_hash", nullable = false)

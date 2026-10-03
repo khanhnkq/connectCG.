@@ -135,6 +135,8 @@ public class UserProfileServiceImpl implements UserProfileService {
             return "FRIEND";
         if (friendRequestRepository.existsBySenderIdAndReceiverIdAndStatus(currentUserId, targetUserId, "PENDING"))
             return "PENDING";
+        if (friendRequestRepository.existsBySenderIdAndReceiverIdAndStatus(targetUserId, currentUserId, "PENDING"))
+            return "WAITING";
         return "STRANGER";
     }
 

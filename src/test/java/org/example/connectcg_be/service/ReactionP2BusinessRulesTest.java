@@ -31,6 +31,7 @@ class ReactionP2BusinessRulesTest {
     @Mock private UserRepository userRepository;
     @Mock private UserProfileRepository userProfileRepository;
     @Mock private NotificationService notificationService;
+    @Mock private org.example.connectcg_be.repository.NotificationRepository notificationRepository;
     @Mock private PostAccessPolicy postAccessPolicy;
     @Mock private PostRealtimeService postRealtimeService;
 
@@ -61,5 +62,42 @@ class ReactionP2BusinessRulesTest {
         ArgumentCaptor<ReactionEventDTO> eventCaptor = ArgumentCaptor.forClass(ReactionEventDTO.class);
         verify(postRealtimeService).publishReactionEvent(org.mockito.ArgumentMatchers.eq(post), eventCaptor.capture());
         assertEquals(4, eventCaptor.getValue().getNewReactCount());
+    }
+
+    @Test
+    void reactToPost_whenRecentNotificationExists_reusesNotificationInstance() {
+        Post post = new Post();
+        post.setId(10);
+        User author = new User();
+        author.setId(1);
+        post.setAuthor(author);
+
+        User reactor = new User();
+        reactor.setId(2);
+        reactor.setUsername("reactor");
+
+        org.example.connectcg_be.entity.Notification existingNotification = new org.example.connectcg_be.entity.Notification();
+        existingNotification.setId(999);
+        existingNotification.setUser(author);
+        existingNotification.setActor(reactor);
+        existingNotification.setType("POST_REACTION");
+        existingNotification.setCreatedAt(java.time.Instant.now().minus(java.time.Duration.ofMinutes(1)));
+
+        when(postRepository.findById(10)).thenReturn(Optional.of(post));
+        when(reactionRepository.findById(org.mockito.ArgumentMatchers.any())).thenReturn(Optional.empty());
+        when(userRepository.getReferenceById(2)).thenReturn(reactor);
+        when(notificationRepository.findFirstByUserIdAndActorIdAndTypeAndTargetTypeAndTargetIdOrderByCreatedAtDesc(
+                1, 2, "POST_REACTION", "POST", 10))
+                .thenReturn(Optional.of(existingNotification));
+        when(userProfileRepository.findByUserId(2)).thenReturn(Optional.empty());
+
+        reactionService.reactToPost(10, 2, "LIKE");
+
+        ArgumentCaptor<org.example.connectcg_be.entity.Notification> notiCaptor =
+                ArgumentCaptor.forClass(org.example.connectcg_be.entity.Notification.class);
+        verify(notificationService).sendNotification(notiCaptor.capture());
+
+        org.example.connectcg_be.entity.Notification passedNoti = notiCaptor.getValue();
+        assertEquals(999, passedNoti.getId());
     }
 }

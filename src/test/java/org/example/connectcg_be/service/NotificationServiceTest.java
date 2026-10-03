@@ -16,10 +16,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -93,6 +94,22 @@ class NotificationServiceTest {
         );
 
         assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+    }
+
+    @Test
+    void markAllAsRead_callsRepositoryBulkUpdate() {
+        when(notificationRepository.markAllAsReadByUserId(1)).thenReturn(5);
+
+        notificationService.markAllAsRead(1);
+
+        verify(notificationRepository).markAllAsReadByUserId(1);
+    }
+
+    @Test
+    void markAllAsRead_nullUserId_skipsRepository() {
+        notificationService.markAllAsRead(null);
+
+        verify(notificationRepository, never()).markAllAsReadByUserId(any());
     }
 
     @Test
@@ -232,5 +249,88 @@ class NotificationServiceTest {
 
         verify(notificationRepository).saveAll(any());
         verify(realtimeEventPublisher, times(2)).sendToUser(anyString(), eq("/queue/notifications"), any());
+    }
+
+    @Test
+    void getMyNotifications_nullUserId_returnsEmptyList() {
+        List<org.example.connectcg_be.dto.TungNotificationDTO> result = notificationService.getMyNotifications(null);
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+        verifyNoInteractions(notificationRepository);
+    }
+
+    @Test
+    void getMyNotifications_withPagination_batchesProfilesAndAvatars() {
+        User actor1 = new User();
+        actor1.setId(201);
+        actor1.setUsername("actor_one");
+
+        Notification n1 = new Notification();
+        n1.setId(1);
+        n1.setUser(owner);
+        n1.setActor(actor1);
+        n1.setContent("Actor 1 liked your post");
+        n1.setType("LIKE");
+        n1.setTargetType("POST");
+        n1.setTargetId(10);
+        n1.setIsRead(false);
+        n1.setCreatedAt(java.time.Instant.now());
+
+        Notification n2 = new Notification();
+        n2.setId(2);
+        n2.setUser(owner);
+        n2.setActor(null); // system notification
+        n2.setContent("System maintenance");
+        n2.setType("SYSTEM");
+        n2.setTargetType("SYSTEM");
+        n2.setTargetId(0);
+        n2.setIsRead(true);
+        n2.setCreatedAt(java.time.Instant.now());
+
+        org.springframework.data.domain.Page<Notification> page = new org.springframework.data.domain.PageImpl<>(
+                List.of(n1, n2),
+                org.springframework.data.domain.PageRequest.of(0, 20),
+                2
+        );
+
+        when(notificationRepository.findAllByUserIdOrderByCreatedAtDesc(eq(1), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(page);
+
+        org.example.connectcg_be.entity.UserProfile profile = new org.example.connectcg_be.entity.UserProfile();
+        profile.setUser(actor1);
+        profile.setFullName("Nguyen Van A");
+
+        org.example.connectcg_be.entity.UserAvatar avatar = new org.example.connectcg_be.entity.UserAvatar();
+        avatar.setUser(actor1);
+        org.example.connectcg_be.entity.Media media = new org.example.connectcg_be.entity.Media();
+        media.setUrl("https://example.com/avatar.jpg");
+        avatar.setMedia(media);
+
+        when(userProfileRepository.findAllByUserIdIn(anyCollection())).thenReturn(List.of(profile));
+        when(userAvatarRepository.findCurrentByUserIds(anyCollection())).thenReturn(List.of(avatar));
+
+        List<org.example.connectcg_be.dto.TungNotificationDTO> results = notificationService.getMyNotifications(1, 0, 20);
+
+        assertEquals(2, results.size());
+
+        // Verification of n1 (with actor)
+        org.example.connectcg_be.dto.TungNotificationDTO dto1 = results.get(0);
+        assertEquals(1, dto1.getId());
+        assertEquals("Nguyen Van A", dto1.getActorName());
+        assertEquals("https://example.com/avatar.jpg", dto1.getActorAvatar());
+        assertFalse(dto1.getIsRead());
+
+        // Verification of n2 (system)
+        org.example.connectcg_be.dto.TungNotificationDTO dto2 = results.get(1);
+        assertEquals(2, dto2.getId());
+        assertEquals("Hệ thống", dto2.getActorName());
+        assertEquals("https://cdn-icons-png.flaticon.com/512/149/149071.png", dto2.getActorAvatar());
+        assertTrue(dto2.getIsRead());
+
+        // Crucial: verify batch methods called only ONCE (no N+1 storm)
+        verify(userProfileRepository, times(1)).findAllByUserIdIn(anyCollection());
+        verify(userAvatarRepository, times(1)).findCurrentByUserIds(anyCollection());
+        verify(userProfileRepository, never()).findByUserId(anyInt());
+        verify(userAvatarRepository, never()).findByUserIdAndIsCurrentTrue(anyInt());
     }
 }

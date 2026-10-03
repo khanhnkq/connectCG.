@@ -96,12 +96,12 @@ public class PostController {
 
     @PutMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Post> updatePost(
+    public ResponseEntity<GroupPostDTO> updatePost(
             @PathVariable("id") Integer id,
             @Valid @RequestBody CreatePostRequest request,
             Authentication authentication) {
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        Post updatedPost = postService.updatePost(id, request, userPrincipal.getId());
+        GroupPostDTO updatedPost = postService.updatePostAndReturnDTO(id, request, userPrincipal.getId());
         return ResponseEntity.ok(updatedPost);
     }
 

@@ -54,6 +54,45 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
   @Query("SELECT p.group.id, count(p) FROM Post p WHERE p.group.id IN :groupIds AND p.status = 'PENDING' AND p.isDeleted = false GROUP BY p.group.id")
   List<Object[]> countPendingPostsByGroupIds(@Param("groupIds") java.util.Collection<Integer> groupIds);
 
+  @Query("SELECT p.author.id, count(p) FROM Post p WHERE p.author.id IN :authorIds AND p.isDeleted = false GROUP BY p.author.id")
+  List<Object[]> countPostsByAuthorIds(@Param("authorIds") java.util.Collection<Integer> authorIds);
+
+  @Query("""
+      SELECT count(p) FROM Post p
+      WHERE p.author.id = :authorId
+        AND p.status = 'APPROVED'
+        AND p.isDeleted = false
+        AND (
+          (p.group IS NULL AND (
+              p.visibility = 'PUBLIC'
+              OR (:isFriend = true AND p.visibility = 'FRIENDS')
+          ))
+          OR
+          (p.group IS NOT NULL AND p.group.isDeleted = false AND (
+              p.group.owner.id = :viewerId
+              OR (
+                  p.group.privacy = 'PUBLIC'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM GroupMember gm_ban
+                      WHERE gm_ban.id.groupId = p.group.id
+                        AND gm_ban.id.userId = :viewerId
+                        AND gm_ban.status = 'BANNED'
+                  )
+              )
+              OR EXISTS (
+                  SELECT 1 FROM GroupMember gm_mem
+                  WHERE gm_mem.id.groupId = p.group.id
+                    AND gm_mem.id.userId = :viewerId
+                    AND gm_mem.status = 'ACCEPTED'
+              )
+          ))
+        )
+  """)
+  int countVisiblePostsForViewer(
+          @Param("authorId") Integer authorId,
+          @Param("viewerId") Integer viewerId,
+          @Param("isFriend") boolean isFriend);
+
   @EntityGraph(attributePaths = { "author", "group", "approvedBy", "originalPost", "originalPost.author",
       "originalPost.group", "originalPost.approvedBy" })
   List<Post> findAllByAuthorIdAndStatusAndIsDeletedFalseOrderByCreatedAtDesc(Integer authorId, String status);

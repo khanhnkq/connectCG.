@@ -17,6 +17,9 @@ public interface PostService {
         org.example.connectcg_be.entity.Post updatePost(Integer postId,
                         org.example.connectcg_be.dto.CreatePostRequest request, Integer userId);
 
+        GroupPostDTO updatePostAndReturnDTO(Integer postId,
+                        org.example.connectcg_be.dto.CreatePostRequest request, Integer userId);
+
         List<GroupPostDTO> getPendingPosts(Integer groupId, Integer userId);
 
         List<GroupPostDTO> getApprovedPosts(Integer groupId, Integer userId);

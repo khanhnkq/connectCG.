@@ -20,9 +20,20 @@ public class TungNotificationController {
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    public List<TungNotificationDTO> getMyNotifications(Authentication authentication) {
+    public List<TungNotificationDTO> getMyNotifications(
+            Authentication authentication,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size) {
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        return notificationService.getMyNotifications(userPrincipal.getId());
+        return notificationService.getMyNotifications(userPrincipal.getId(), page, size);
+    }
+
+    @PutMapping("/read-all")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> markAllAsRead(Authentication authentication) {
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        notificationService.markAllAsRead(userPrincipal.getId());
+        return ResponseEntity.ok().build();
     }
 
     @PutMapping("/{id}/read")

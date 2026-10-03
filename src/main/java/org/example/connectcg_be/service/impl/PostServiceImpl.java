@@ -649,6 +649,12 @@ public class PostServiceImpl implements PostService {
         });
     }
 
+    @Override
+    public GroupPostDTO updatePostAndReturnDTO(Integer postId, CreatePostRequest request, Integer userId) {
+        Post updatedPost = updatePost(postId, request, userId);
+        return convertToDTO(updatedPost, userId);
+    }
+
     @Transactional
     @Override
     public void deletePost(Integer postId, Integer userId) {

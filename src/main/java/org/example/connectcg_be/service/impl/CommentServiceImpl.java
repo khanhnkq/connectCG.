@@ -180,8 +180,9 @@ public class CommentServiceImpl implements CommentService {
                 .map(org.example.connectcg_be.entity.UserProfile::getFullName)
                 .orElse(commenter.getUsername());
 
+        Comment parent = null;
         if (request.getParentId() != null) {
-            Comment parent = commentRepository.findByIdForUpdate(request.getParentId())
+            parent = commentRepository.findByIdForUpdate(request.getParentId())
                     .orElseThrow(() -> new RuntimeException("Không tìm thấy comment cha"));
             if (parent.getPost() == null || !postId.equals(parent.getPost().getId())) {
                 throw new RuntimeException("Comment cha không thuộc bài viết này");
@@ -222,7 +223,12 @@ public class CommentServiceImpl implements CommentService {
         Comment saved = commentRepository.save(comment);
 
         // Gửi thông báo cho chủ bài viết (Comment Notification)
-        if (!commenter.getId().equals(post.getAuthor().getId())) {
+        // Tránh trùng lặp: Nếu đây là reply cho chính bình luận của tác giả bài viết, tác giả đã nhận thông báo COMMENT_REPLY ở trên
+        boolean alreadyNotifiedAsParentAuthor = parent != null
+                && parent.getAuthor() != null
+                && parent.getAuthor().getId().equals(post.getAuthor().getId());
+
+        if (!commenter.getId().equals(post.getAuthor().getId()) && !alreadyNotifiedAsParentAuthor) {
             Notification notification = new Notification();
             notification.setUser(post.getAuthor());
             notification.setActor(commenter);

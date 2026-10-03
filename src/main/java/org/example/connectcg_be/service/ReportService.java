@@ -14,6 +14,8 @@ public interface ReportService {
 
     Report getReportById(Integer id);
 
+    ReportResponse getReportResponseById(Integer id);
+
     void updateReport(Integer id, ReportAdminUpdateRequest request, String adminUsername);
 
     List<ReportResponse> getAllReports();
