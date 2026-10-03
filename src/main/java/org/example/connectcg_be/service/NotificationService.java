@@ -21,4 +21,10 @@ public interface NotificationService {
 
     @Transactional
     void sendNotification(org.example.connectcg_be.entity.Notification notification);
+
+    @Transactional
+    void sendNotificationBatch(TungNotificationDTO dto, List<org.example.connectcg_be.entity.User> receivers,
+                               org.example.connectcg_be.entity.User actor);
+
+    void processFanoutNotification(org.example.connectcg_be.queue.dto.NotificationFanoutMessage message);
 }

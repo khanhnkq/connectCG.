@@ -31,6 +31,12 @@ public class ImageOptimizationService {
             String extension
     ) {}
 
+    public record ThumbnailResult(
+            byte[] data,
+            String contentType,
+            String extension
+    ) {}
+
     public record ImageSpec(int maxWidth, int maxHeight, float quality) {}
 
     public ImageSpec getSpecForCategory(MediaCategory category) {
@@ -156,6 +162,62 @@ public class ImageOptimizationService {
                     ? new ByteArrayInputStream(originalBytes)
                     : originalInputStream;
             return new OptimizedImage(fallbackStream, originalSize, validated.contentType(), validated.extension());
+        }
+    }
+
+    /**
+     * Tạo thumbnail cho ảnh với kích thước tối đa và nén chất lượng cao.
+     * Sử dụng semaphore để giới hạn tối đa 2 worker xử lý đồng thời, bảo vệ RAM VPS.
+     */
+    public ThumbnailResult generateThumbnail(InputStream inputStream, int maxWidth, int maxHeight) {
+        byte[] originalBytes = null;
+        try {
+            originalBytes = inputStream.readAllBytes();
+            validateImageDimensions(originalBytes);
+
+            boolean acquired = false;
+            try {
+                acquired = compressionSemaphore.tryAcquire(5, TimeUnit.SECONDS);
+                if (!acquired) {
+                    log.warn("Compression semaphore busy, skipping thumbnail generation");
+                    return null;
+                }
+
+                BufferedImage originalImage = ImageIO.read(new ByteArrayInputStream(originalBytes));
+                if (originalImage == null) {
+                    log.warn("ImageIO could not decode image format for thumbnail generation");
+                    return null;
+                }
+
+                boolean hasAlpha = originalImage.getColorModel() != null && originalImage.getColorModel().hasAlpha();
+                String targetFormat = hasAlpha ? "png" : "jpg";
+                String targetContentType = hasAlpha ? "image/png" : "image/jpeg";
+                String targetExtension = hasAlpha ? "png" : "jpg";
+
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                var builder = Thumbnails.of(originalImage)
+                        .size(maxWidth, maxHeight)
+                        .outputFormat(targetFormat);
+
+                if (!hasAlpha) {
+                    builder.outputQuality(0.80f);
+                }
+
+                builder.toOutputStream(outputStream);
+                byte[] thumbBytes = outputStream.toByteArray();
+
+                log.info("thumbnail_generated width={} height={} originalBytes={} thumbBytes={}",
+                        maxWidth, maxHeight, originalBytes.length, thumbBytes.length);
+
+                return new ThumbnailResult(thumbBytes, targetContentType, targetExtension);
+            } finally {
+                if (acquired) {
+                    compressionSemaphore.release();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Thumbnail generation failed: {}", e.getMessage());
+            return null;
         }
     }
 }

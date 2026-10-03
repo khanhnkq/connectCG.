@@ -279,6 +279,7 @@ public class PostServiceImpl implements PostService {
         List<MediaItem> mediaDto = mediaList.stream().map(pm -> {
             MediaItem item = new MediaItem();
             item.setUrl(pm.getMedia().getUrl());
+            item.setThumbnailUrl(pm.getMedia().getThumbnailUrl());
             item.setType(pm.getMedia().getType());
             item.setDisplayOrder(pm.getDisplayOrder());
             return item;

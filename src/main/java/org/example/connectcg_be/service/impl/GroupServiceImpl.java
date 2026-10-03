@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -682,17 +683,18 @@ public class GroupServiceImpl implements GroupService {
         dto.setTargetType("GROUP");
         dto.setTargetId(groupId);
 
-        // Send to all admins
+        // Send to all admins & owner via batch/queue
+        List<User> recipients = new ArrayList<>();
         for (GroupMember admin : admins) {
-            notificationService.sendNotification(dto, admin.getUser(), user);
+            if (admin.getUser() != null && !admin.getUser().getId().equals(userId)) {
+                recipients.add(admin.getUser());
+            }
         }
-
-        // Also send to owner if they are not in the 'admins' list (though they usually
-        // are)
-        boolean ownerNotified = admins.stream().anyMatch(a -> a.getUser().getId().equals(owner.getId()));
+        boolean ownerNotified = recipients.stream().anyMatch(u -> u.getId().equals(owner.getId()));
         if (!ownerNotified && owner != null && !owner.getId().equals(userId)) {
-            notificationService.sendNotification(dto, owner, user);
+            recipients.add(owner);
         }
+        notificationService.sendNotificationBatch(dto, recipients, user);
 
         // Broadcast realtime membership event for general UI updates
         org.example.connectcg_be.dto.MembershipEventDTO event = new org.example.connectcg_be.dto.MembershipEventDTO(

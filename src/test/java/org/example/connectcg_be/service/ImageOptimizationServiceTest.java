@@ -78,6 +78,23 @@ class ImageOptimizationServiceTest {
         );
     }
 
+    @Test
+    void generateThumbnail_GeneratesResizedImageSuccessfully() throws IOException {
+        BufferedImage img = new BufferedImage(800, 600, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(img, "jpg", baos);
+        byte[] bytes = baos.toByteArray();
+
+        ImageOptimizationService.ThumbnailResult thumb = service.generateThumbnail(
+                new ByteArrayInputStream(bytes), 200, 200);
+
+        assertNotNull(thumb);
+        assertNotNull(thumb.data());
+        assertTrue(thumb.data().length > 0);
+        assertEquals("image/jpeg", thumb.contentType());
+        assertEquals("jpg", thumb.extension());
+    }
+
     /**
      * Creates a synthetic PNG header with specified dimensions to test header parsing
      * without creating a gigabyte bitmap in memory.

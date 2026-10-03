@@ -32,7 +32,11 @@ class NotificationServiceTest {
     @Mock
     private UserProfileRepository userProfileRepository;
     @Mock
+    private org.example.connectcg_be.repository.UserRepository userRepository;
+    @Mock
     private RealtimeEventPublisher realtimeEventPublisher;
+    @Mock
+    private org.example.connectcg_be.queue.producer.NotificationQueueProducer notificationQueueProducer;
 
     @InjectMocks
     private NotificationServiceImpl notificationService;
@@ -147,5 +151,86 @@ class NotificationServiceTest {
         assertEquals(101, sentDtos.get(0).getId());
         assertEquals(102, sentDtos.get(1).getId());
         assertNotSame(sentDtos.get(0), sentDtos.get(1));
+    }
+
+    @Test
+    void sendNotificationBatch_enqueuesTaskWhenProducerSucceeds() {
+        org.example.connectcg_be.dto.TungNotificationDTO dto = new org.example.connectcg_be.dto.TungNotificationDTO();
+        dto.setContent("Hello all");
+        dto.setType("GROUP_ANNOUNCEMENT");
+        dto.setTargetType("GROUP");
+        dto.setTargetId(10);
+
+        User u1 = new User();
+        u1.setId(11);
+        User u2 = new User();
+        u2.setId(12);
+
+        when(notificationQueueProducer.enqueueFanout(any(), any(), any(), any(), any(), any())).thenReturn(true);
+
+        notificationService.sendNotificationBatch(dto, java.util.List.of(u1, u2), owner);
+
+        verify(notificationQueueProducer).enqueueFanout(
+                eq(java.util.List.of(11, 12)),
+                eq(owner.getId()),
+                eq("Hello all"),
+                eq("GROUP_ANNOUNCEMENT"),
+                eq("GROUP"),
+                eq(10)
+        );
+        verifyNoInteractions(notificationRepository);
+    }
+
+    @Test
+    void sendNotificationBatch_fallsBackToSyncWhenQueueFails() {
+        org.example.connectcg_be.dto.TungNotificationDTO dto = new org.example.connectcg_be.dto.TungNotificationDTO();
+        dto.setContent("Hello fallback");
+        dto.setType("NOTICE");
+        dto.setTargetType("SYSTEM");
+        dto.setTargetId(1);
+
+        User u1 = new User();
+        u1.setId(11);
+        u1.setUsername("u1");
+
+        when(notificationQueueProducer.enqueueFanout(any(), any(), any(), any(), any(), any())).thenReturn(false);
+        when(userRepository.findAllById(any())).thenReturn(java.util.List.of(u1));
+        when(notificationRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        notificationService.sendNotificationBatch(dto, java.util.List.of(u1), owner);
+
+        verify(notificationRepository).saveAll(any());
+        verify(realtimeEventPublisher).sendToUser(eq("u1"), eq("/queue/notifications"), any());
+    }
+
+    @Test
+    void processFanoutNotification_partitionsAndSavesAll() {
+        org.example.connectcg_be.queue.dto.NotificationFanoutMessage message =
+                org.example.connectcg_be.queue.dto.NotificationFanoutMessage.builder()
+                        .messageId("msg-1")
+                        .recipientUserIds(java.util.List.of(11, 12))
+                        .actorId(owner.getId())
+                        .content("Worker test")
+                        .type("TEST")
+                        .targetType("POST")
+                        .targetId(22)
+                        .createdAt(java.time.Instant.now())
+                        .build();
+
+        User u1 = new User();
+        u1.setId(11);
+        u1.setUsername("u1");
+        User u2 = new User();
+        u2.setId(12);
+        u2.setUsername("u2");
+
+        when(userRepository.findById(owner.getId())).thenReturn(java.util.Optional.of(owner));
+        when(userRepository.findAllById(any())).thenReturn(java.util.List.of(u1, u2));
+        when(notificationRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        notificationService.processFanoutNotification(message);
+
+        verify(notificationRepository).saveAll(any());
+        verify(realtimeEventPublisher, times(2)).sendToUser(anyString(), eq("/queue/notifications"), any());
     }
 }

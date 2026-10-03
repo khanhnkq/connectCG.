@@ -14,6 +14,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +27,8 @@ class MediaUploadServiceTest {
     private MediaRepository mediaRepository;
     @Mock
     private UserService userService;
+    @Mock
+    private org.example.connectcg_be.queue.producer.MediaQueueProducer mediaQueueProducer;
 
     private MediaUploadService mediaUploadService;
     private MockMultipartFile png;
@@ -37,7 +40,8 @@ class MediaUploadServiceTest {
                 mediaRepository,
                 userService,
                 new MediaFileValidator(),
-                new ImageOptimizationService());
+                new ImageOptimizationService(),
+                mediaQueueProducer);
         png = new MockMultipartFile(
                 "file",
                 "avatar.png",
@@ -63,6 +67,7 @@ class MediaUploadServiceTest {
         assertEquals(7, result.mediaId());
         assertEquals("avatar/2026/08/id.png", result.objectKey());
         verify(mediaRepository).save(any(Media.class));
+        verify(mediaQueueProducer).enqueueMediaProcessing(eq(7), eq("avatar/2026/08/id.png"), eq("IMAGE"), eq("AVATAR"), any());
     }
 
     @Test
@@ -83,5 +88,21 @@ class MediaUploadServiceTest {
     @Test
     void rejectsUnknownCategoryBeforeUploading() {
         assertThrows(MediaValidationException.class, () -> mediaUploadService.upload(png, "../../etc", 42));
+    }
+
+    @Test
+    void processAsyncMedia_skipsNonImage() {
+        mediaUploadService.processAsyncMedia(10, "video/2026/08/vid.mp4", "VIDEO", "POST");
+        org.mockito.Mockito.verifyNoInteractions(mediaRepository);
+    }
+
+    @Test
+    void processAsyncMedia_skipsWhenNotFoundOrDeleted() {
+        when(mediaRepository.findById(999)).thenReturn(java.util.Optional.empty());
+
+        mediaUploadService.processAsyncMedia(999, "post/2026/08/img.jpg", "IMAGE", "POST");
+
+        verify(mediaRepository).findById(999);
+        org.mockito.Mockito.verifyNoMoreInteractions(mediaRepository);
     }
 }

@@ -5,6 +5,7 @@ import lombok.Data;
 @Data
 public class MediaItem {
     private String url;
+    private String thumbnailUrl;
     private String type;       // image/video
     private Integer displayOrder;
 }
