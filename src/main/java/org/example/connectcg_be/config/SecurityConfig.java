@@ -101,7 +101,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/logout").permitAll()
                         .requestMatchers("/oauth2/**", "/login/oauth2/**", "/api/v1/auth/callback/**", "/error").permitAll()
                         .requestMatchers("/ws/**").permitAll()
-                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**").permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated()
                 ).oauth2Login(oauth2 -> oauth2
                         .redirectionEndpoint(redirection -> redirection

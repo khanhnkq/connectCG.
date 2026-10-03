@@ -41,6 +41,7 @@ dependencies {
     implementation 'org.springframework:spring-aspects'
     implementation 'io.minio:minio:9.0.1'
     implementation 'net.coobird:thumbnailator:0.4.20'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
 
     // Source: https://mvnrepository.com/artifact/io.jsonwebtoken/jjwt-api
     implementation("io.jsonwebtoken:jjwt-api:0.13.0")
@@ -61,4 +62,13 @@ runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+tasks.register('exportOpenApiDocs', Test) {
+    description = 'Exports OpenAPI 3.0 specification JSON file for frontend client codegen'
+    group = 'documentation'
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'org.example.connectcg_be.config.OpenApiExportTest'
+    }
 }
