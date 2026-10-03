@@ -57,6 +57,7 @@ class QueueMonitoringServiceTest {
         when(rabbitAdmin.getQueueProperties(RabbitMQConfig.QUEUE_EMAIL)).thenReturn(normalProps);
         when(rabbitAdmin.getQueueProperties(RabbitMQConfig.QUEUE_AI)).thenReturn(normalProps);
         when(rabbitAdmin.getQueueProperties(RabbitMQConfig.QUEUE_MEDIA)).thenReturn(normalProps);
+        when(rabbitAdmin.getQueueProperties(RabbitMQConfig.QUEUE_VIDEO)).thenReturn(normalProps);
         when(rabbitAdmin.getQueueProperties(RabbitMQConfig.QUEUE_NOTIFICATION)).thenReturn(normalProps);
         when(rabbitAdmin.getQueueProperties(RabbitMQConfig.QUEUE_DEAD_LETTER)).thenReturn(dlqProps);
 
@@ -64,7 +65,7 @@ class QueueMonitoringServiceTest {
 
         assertTrue(status.isQueueEnabled());
         assertTrue(status.isConnected());
-        assertEquals(5, status.getQueues().size());
+        assertEquals(6, status.getQueues().size());
         assertEquals(15, status.getDeadLetterCount());
         assertTrue(status.isHasDlqAlert());
         assertNotNull(status.getAlertMessage());

@@ -35,17 +35,32 @@ class MediaFileValidatorTest {
     }
 
     @Test
-    void rejectsImageLargerThanFifteenMegabytes() throws Exception {
+    void rejectsImageLargerThanFiveMegabytes() throws Exception {
         org.springframework.web.multipart.MultipartFile file = org.mockito.Mockito.mock(
                 org.springframework.web.multipart.MultipartFile.class);
         org.mockito.Mockito.when(file.isEmpty()).thenReturn(false);
-        org.mockito.Mockito.when(file.getSize()).thenReturn(15L * 1024 * 1024 + 1);
+        org.mockito.Mockito.when(file.getSize()).thenReturn(5L * 1024 * 1024 + 1);
         org.mockito.Mockito.when(file.getContentType()).thenReturn("image/png");
 
         MediaValidationException error = assertThrows(
                 MediaValidationException.class,
                 () -> validator.validate(file));
 
-        assertEquals("Ảnh vượt quá giới hạn 15 MB", error.getMessage());
+        assertEquals("Ảnh vượt quá giới hạn 5 MB", error.getMessage());
+    }
+
+    @Test
+    void rejectsVideoLargerThanTwentyFiveMegabytes() {
+        org.springframework.web.multipart.MultipartFile file = org.mockito.Mockito.mock(
+                org.springframework.web.multipart.MultipartFile.class);
+        org.mockito.Mockito.when(file.isEmpty()).thenReturn(false);
+        org.mockito.Mockito.when(file.getSize()).thenReturn(25L * 1024 * 1024 + 1);
+        org.mockito.Mockito.when(file.getContentType()).thenReturn("video/mp4");
+
+        MediaValidationException error = assertThrows(
+                MediaValidationException.class,
+                () -> validator.validate(file));
+
+        assertEquals("Video vượt quá giới hạn 25 MB", error.getMessage());
     }
 }

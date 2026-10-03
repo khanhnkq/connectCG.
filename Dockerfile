@@ -25,6 +25,9 @@ RUN ./gradlew bootJar -x test --no-daemon
 # --- Giai đoạn 2: Chạy ứng dụng ---
 FROM eclipse-temurin:17-jre-jammy
 
+# Cài đặt ffmpeg phục vụ xử lý video và poster thumbnail
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Chỉ copy file .jar từ giai đoạn builder sang

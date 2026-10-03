@@ -24,6 +24,7 @@ public class RabbitMQConfig {
     public static final String QUEUE_EMAIL = "connect.email.queue";
     public static final String QUEUE_AI = "connect.ai.queue";
     public static final String QUEUE_MEDIA = "connect.media.queue";
+    public static final String QUEUE_VIDEO = "connect.video.queue";
     public static final String QUEUE_NOTIFICATION = "connect.notification.queue";
     public static final String QUEUE_DEAD_LETTER = "connect.dead-letter.queue";
 
@@ -31,10 +32,12 @@ public class RabbitMQConfig {
     public static final String ROUTING_KEY_EMAIL = "email.auth";
     public static final String ROUTING_KEY_AI = "ai.moderate";
     public static final String ROUTING_KEY_MEDIA = "media.process";
+    public static final String ROUTING_KEY_VIDEO = "video.process";
     public static final String ROUTING_KEY_NOTIFICATION = "notification.fanout";
     public static final String ROUTING_KEY_DLX_EMAIL = "dlx.email";
     public static final String ROUTING_KEY_DLX_AI = "dlx.ai";
     public static final String ROUTING_KEY_DLX_MEDIA = "dlx.media";
+    public static final String ROUTING_KEY_DLX_VIDEO = "dlx.video";
     public static final String ROUTING_KEY_DLX_NOTIFICATION = "dlx.notification";
     public static final String ROUTING_KEY_DLX_ALL = "dlx.#";
 
@@ -76,6 +79,14 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Queue videoQueue() {
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-dead-letter-exchange", EXCHANGE_DLX);
+        args.put("x-dead-letter-routing-key", ROUTING_KEY_DLX_VIDEO);
+        return new Queue(QUEUE_VIDEO, true, false, false, args);
+    }
+
+    @Bean
     public Queue notificationQueue() {
         Map<String, Object> args = new HashMap<>();
         args.put("x-dead-letter-exchange", EXCHANGE_DLX);
@@ -102,6 +113,11 @@ public class RabbitMQConfig {
     @Bean
     public Binding mediaBinding(Queue mediaQueue, DirectExchange directExchange) {
         return BindingBuilder.bind(mediaQueue).to(directExchange).with(ROUTING_KEY_MEDIA);
+    }
+
+    @Bean
+    public Binding videoBinding(Queue videoQueue, DirectExchange directExchange) {
+        return BindingBuilder.bind(videoQueue).to(directExchange).with(ROUTING_KEY_VIDEO);
     }
 
     @Bean

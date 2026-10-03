@@ -59,6 +59,7 @@ public class QueueMonitoringService {
                 RabbitMQConfig.QUEUE_EMAIL,
                 RabbitMQConfig.QUEUE_AI,
                 RabbitMQConfig.QUEUE_MEDIA,
+                RabbitMQConfig.QUEUE_VIDEO,
                 RabbitMQConfig.QUEUE_NOTIFICATION,
                 RabbitMQConfig.QUEUE_DEAD_LETTER
         );

@@ -29,6 +29,10 @@ class MediaUploadServiceTest {
     private UserService userService;
     @Mock
     private org.example.connectcg_be.queue.producer.MediaQueueProducer mediaQueueProducer;
+    @Mock
+    private org.example.connectcg_be.queue.producer.VideoQueueProducer videoQueueProducer;
+    @Mock
+    private VideoOptimizationService videoOptimizationService;
 
     private MediaUploadService mediaUploadService;
     private MockMultipartFile png;
@@ -41,7 +45,9 @@ class MediaUploadServiceTest {
                 userService,
                 new MediaFileValidator(),
                 new ImageOptimizationService(),
-                mediaQueueProducer);
+                mediaQueueProducer,
+                videoQueueProducer,
+                videoOptimizationService);
         png = new MockMultipartFile(
                 "file",
                 "avatar.png",
@@ -101,6 +107,52 @@ class MediaUploadServiceTest {
         when(mediaRepository.findById(999)).thenReturn(java.util.Optional.empty());
 
         mediaUploadService.processAsyncMedia(999, "post/2026/08/img.jpg", "IMAGE", "POST");
+
+        verify(mediaRepository).findById(999);
+        org.mockito.Mockito.verifyNoMoreInteractions(mediaRepository);
+    }
+
+    @Test
+    void uploadVideo_storesObjectAndEnqueuesVideoProcessing() {
+        User uploader = new User();
+        uploader.setId(42);
+        when(userService.findByIdUser(42)).thenReturn(uploader);
+
+        MockMultipartFile videoFile = new MockMultipartFile(
+                "file",
+                "demo.mp4",
+                "video/mp4",
+                new byte[] {0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+
+        MockMultipartFile thumbFile = new MockMultipartFile(
+                "thumbnail",
+                "thumb.jpg",
+                "image/jpeg",
+                new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0x00});
+
+        when(objectStorageService.store(any(), any(Long.class), eq("video/mp4"), any()))
+                .thenReturn(new StoredObject("connect-media", "post/2026/10/vid.mp4", "http://localhost:9000/connect-media/post/2026/10/vid.mp4"));
+        when(objectStorageService.store(any(), any(Long.class), eq("image/jpeg"), any()))
+                .thenReturn(new StoredObject("connect-media", "post/2026/10/thumb_vid.jpg", "http://localhost:9000/connect-media/post/2026/10/thumb_vid.jpg"));
+
+        when(mediaRepository.save(any(Media.class))).thenAnswer(invocation -> {
+            Media media = invocation.getArgument(0);
+            media.setId(99);
+            return media;
+        });
+
+        MediaUploadResponse result = mediaUploadService.upload(videoFile, "post", 42, thumbFile);
+
+        assertEquals(99, result.mediaId());
+        assertEquals("http://localhost:9000/connect-media/post/2026/10/thumb_vid.jpg", result.thumbnailUrl());
+        verify(videoQueueProducer).enqueueVideoProcessing(eq(99), any(), eq("POST"), eq("video/mp4"), any());
+    }
+
+    @Test
+    void processAsyncVideo_skipsWhenNotFoundOrDeleted() {
+        when(mediaRepository.findById(999)).thenReturn(java.util.Optional.empty());
+
+        mediaUploadService.processAsyncVideo(999, "post/2026/10/vid.mp4", "POST", "video/mp4", 1000L);
 
         verify(mediaRepository).findById(999);
         org.mockito.Mockito.verifyNoMoreInteractions(mediaRepository);

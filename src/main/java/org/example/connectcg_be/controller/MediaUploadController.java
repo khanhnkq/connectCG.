@@ -38,10 +38,20 @@ public class MediaUploadController {
     public ResponseEntity<MediaUploadResponse> upload(
             @RequestParam("file") MultipartFile file,
             @RequestParam("category") String category,
+            @RequestParam(value = "thumbnail", required = false) MultipartFile thumbnail,
             @AuthenticationPrincipal UserPrincipal currentUser) {
         rateLimitService.check(RateLimitPolicy.MEDIA_UPLOAD, currentUser.getId().toString());
-        MediaUploadResponse response = mediaUploadService.upload(file, category, currentUser.getId());
+        MediaUploadResponse response = (thumbnail != null && !thumbnail.isEmpty())
+                ? mediaUploadService.upload(file, category, currentUser.getId(), thumbnail)
+                : mediaUploadService.upload(file, category, currentUser.getId());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    public ResponseEntity<MediaUploadResponse> upload(
+            MultipartFile file,
+            String category,
+            UserPrincipal currentUser) {
+        return upload(file, category, null, currentUser);
     }
 
     @GetMapping("/view/**")
