@@ -19,14 +19,26 @@ public class AiModerationConsumer {
     public void processAiModerationMessage(AiModerationMessage message) {
         log.info("Received AI moderation task [{}] for post ID: {}", message.getMessageId(), message.getPostId());
         try {
-            postService.processAsyncModeration(
-                    message.getPostId(),
-                    message.getContent(),
-                    message.getActionType(),
-                    message.getUpdatedAt()
-            );
+            if (message.getMediaUrls() != null && !message.getMediaUrls().isEmpty()) {
+                postService.processAsyncModeration(
+                        message.getPostId(),
+                        message.getContent(),
+                        message.getMediaUrls(),
+                        message.getActionType(),
+                        message.getUpdatedAt()
+                );
+            } else {
+                postService.processAsyncModeration(
+                        message.getPostId(),
+                        message.getContent(),
+                        message.getActionType(),
+                        message.getUpdatedAt()
+                );
+            }
+
             log.info("Successfully completed async AI moderation task [{}] for post ID: {}",
                     message.getMessageId(), message.getPostId());
+
         } catch (Exception e) {
             log.error("Error processing AI moderation task [{}] for post ID {}: {}",
                     message.getMessageId(), message.getPostId(), e.getMessage(), e);

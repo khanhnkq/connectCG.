@@ -21,9 +21,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -472,8 +474,13 @@ public class PostServiceImpl implements PostService {
 
         AiModerationResult aiResult = null;
         if (shouldCheckAi && !useAsyncAi) {
-            aiResult = aiModerationService.checkPostContent(request.getContent());
+            if (request.getMediaUrls() != null && !request.getMediaUrls().isEmpty()) {
+                aiResult = aiModerationService.checkPostContent(request.getContent(), request.getMediaUrls());
+            } else {
+                aiResult = aiModerationService.checkPostContent(request.getContent());
+            }
         }
+
 
         final Group finalGroup = group;
         final AiModerationResult finalAiResult = aiResult;
@@ -541,7 +548,7 @@ public class PostServiceImpl implements PostService {
             }
 
             if (finalUseAsyncAi) {
-                aiQueueProducer.enqueueModeration(savedPost.getId(), request.getContent(), "CREATE", author.getId(), savedPost.getUpdatedAt());
+                aiQueueProducer.enqueueModeration(savedPost.getId(), request.getContent(), request.getMediaUrls(), "CREATE", author.getId(), savedPost.getUpdatedAt());
             }
 
             return savedPost;
@@ -580,8 +587,13 @@ public class PostServiceImpl implements PostService {
 
         AiModerationResult aiResult = null;
         if (willCheckAi && !useAsyncAi) {
-            aiResult = aiModerationService.checkPostContent(request.getContent());
+            if (request.getMediaUrls() != null && !request.getMediaUrls().isEmpty()) {
+                aiResult = aiModerationService.checkPostContent(request.getContent(), request.getMediaUrls());
+            } else {
+                aiResult = aiModerationService.checkPostContent(request.getContent());
+            }
         }
+
 
         final AiModerationResult finalAiResult = aiResult;
         final boolean finalContentOrVisChanged = contentChanged || (visibilityChanged && "PUBLIC".equals(request.getVisibility()));
@@ -642,7 +654,7 @@ public class PostServiceImpl implements PostService {
             }
 
             if (finalUseAsyncAi) {
-                aiQueueProducer.enqueueModeration(savedPost.getId(), request.getContent(), "UPDATE", savedPost.getAuthor().getId(), savedPost.getUpdatedAt());
+                aiQueueProducer.enqueueModeration(savedPost.getId(), request.getContent(), request.getMediaUrls(), "UPDATE", savedPost.getAuthor().getId(), savedPost.getUpdatedAt());
             }
 
             return savedPost;
@@ -877,8 +889,13 @@ public class PostServiceImpl implements PostService {
         boolean useAsyncAi = aiQueueProducer != null && aiQueueProducer.isQueueEnabled();
         AiModerationResult aiResult = null;
         if (!useAsyncAi) {
-            aiResult = aiModerationService.checkPostContent(request.getContent());
+            if (request.getMediaUrls() != null && !request.getMediaUrls().isEmpty()) {
+                aiResult = aiModerationService.checkPostContent(request.getContent(), request.getMediaUrls());
+            } else {
+                aiResult = aiModerationService.checkPostContent(request.getContent());
+            }
         }
+
 
         final Post targetOriginalPost = originalPost;
         final Group finalGroup = group;
@@ -945,7 +962,7 @@ public class PostServiceImpl implements PostService {
             }
 
             if (finalUseAsyncAi) {
-                aiQueueProducer.enqueueModeration(savedPost.getId(), request.getContent(), "SHARE", author.getId(), savedPost.getUpdatedAt());
+                aiQueueProducer.enqueueModeration(savedPost.getId(), request.getContent(), request.getMediaUrls(), "SHARE", author.getId(), savedPost.getUpdatedAt());
             }
 
             return convertToDTO(savedPost, userId);
@@ -954,6 +971,11 @@ public class PostServiceImpl implements PostService {
 
     @Override
     public void processAsyncModeration(Integer postId, String content, String actionType, Instant revisionTime) {
+        processAsyncModeration(postId, content, Collections.emptyList(), actionType, revisionTime);
+    }
+
+    @Override
+    public void processAsyncModeration(Integer postId, String content, List<String> mediaUrls, String actionType, Instant revisionTime) {
         Post post = postRepository.findById(postId).orElse(null);
         if (post == null || Boolean.TRUE.equals(post.getIsDeleted())) {
             return;
@@ -963,7 +985,34 @@ public class PostServiceImpl implements PostService {
             return;
         }
 
-        AiModerationResult aiResult = aiModerationService.checkPostContent(content);
+        List<String> resolvedMediaUrls = mediaUrls;
+        if (resolvedMediaUrls == null || resolvedMediaUrls.isEmpty()) {
+            List<PostMedia> postMedias = postMediaRepository.findAllByPostId(postId);
+            if (!postMedias.isEmpty()) {
+                resolvedMediaUrls = new ArrayList<>();
+                for (PostMedia pm : postMedias) {
+                    Media m = pm.getMedia();
+                    if (m != null) {
+                        if ("VIDEO".equalsIgnoreCase(m.getType())) {
+                            if (m.getThumbnailUrl() != null && !m.getThumbnailUrl().isBlank()) {
+                                resolvedMediaUrls.add(m.getThumbnailUrl());
+                            }
+                        } else {
+                            if (m.getUrl() != null && !m.getUrl().isBlank()) {
+                                resolvedMediaUrls.add(m.getUrl());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        AiModerationResult aiResult;
+        if (resolvedMediaUrls != null && !resolvedMediaUrls.isEmpty()) {
+            aiResult = aiModerationService.checkPostContent(content, resolvedMediaUrls);
+        } else {
+            aiResult = aiModerationService.checkPostContent(content);
+        }
 
         executeInTransaction(status -> {
             Post currentPost = postRepository.findById(postId).orElse(null);

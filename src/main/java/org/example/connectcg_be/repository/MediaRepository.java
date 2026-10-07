@@ -17,6 +17,8 @@ public interface MediaRepository extends JpaRepository<Media, Integer> {
 
     Optional<Media> findByUrlAndUploaderIdAndIsDeletedFalse(String url, Integer uploaderId);
 
+    Optional<Media> findFirstByUrlAndIsDeletedFalse(String url);
+
     @Query(value = """
             SELECT m.*
             FROM media m

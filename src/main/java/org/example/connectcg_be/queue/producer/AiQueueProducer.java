@@ -29,7 +29,7 @@ public class AiQueueProducer {
      * Đẩy tác vụ kiểm duyệt AI vào hàng đợi RabbitMQ.
      * Trả về true nếu đẩy thành công, false nếu queue tắt hoặc lỗi broker (để fallback sync).
      */
-    public boolean enqueueModeration(Integer postId, String content, String actionType, Integer authorId, Instant updatedAt) {
+    public boolean enqueueModeration(Integer postId, String content, java.util.List<String> mediaUrls, String actionType, Integer authorId, Instant updatedAt) {
         if (!queueEnabled) {
             log.info("Queue is disabled. Skipping async enqueue for post [{}]", postId);
             return false;
@@ -39,6 +39,7 @@ public class AiQueueProducer {
                 .messageId(UUID.randomUUID().toString())
                 .postId(postId)
                 .content(content)
+                .mediaUrls(mediaUrls)
                 .actionType(actionType)
                 .authorId(authorId)
                 .updatedAt(updatedAt)
@@ -46,7 +47,8 @@ public class AiQueueProducer {
                 .build();
 
         try {
-            log.info("Publishing AI moderation task [{}] for post [{}] to queue", message.getMessageId(), postId);
+            log.info("Publishing AI moderation task [{}] for post [{}] with {} media items to queue",
+                    message.getMessageId(), postId, mediaUrls != null ? mediaUrls.size() : 0);
             rabbitTemplate.convertAndSend(
                     RabbitMQConfig.EXCHANGE_DIRECT,
                     RabbitMQConfig.ROUTING_KEY_AI,
@@ -60,4 +62,9 @@ public class AiQueueProducer {
             return false;
         }
     }
+
+    public boolean enqueueModeration(Integer postId, String content, String actionType, Integer authorId, Instant updatedAt) {
+        return enqueueModeration(postId, content, java.util.Collections.emptyList(), actionType, authorId, updatedAt);
+    }
+
 }

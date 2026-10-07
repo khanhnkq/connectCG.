@@ -48,11 +48,15 @@ public class GeminiModerationCache {
     }
 
     public Optional<AiModerationResult> find(String content, String model, String promptVersion) {
+        return find(content, java.util.Collections.emptyList(), model, promptVersion);
+    }
+
+    public Optional<AiModerationResult> find(String content, java.util.List<String> mediaKeys, String model, String promptVersion) {
         if (!enabled) {
             return Optional.empty();
         }
 
-        String key = buildKey(content, model, promptVersion);
+        String key = buildKey(content, mediaKeys, model, promptVersion);
         try {
             String cached = redisTemplate.opsForValue().get(key);
             if (cached == null) {
@@ -78,13 +82,17 @@ public class GeminiModerationCache {
     }
 
     public void store(String content, String model, String promptVersion, AiModerationResult result) {
+        store(content, java.util.Collections.emptyList(), model, promptVersion, result);
+    }
+
+    public void store(String content, java.util.List<String> mediaKeys, String model, String promptVersion, AiModerationResult result) {
         Duration ttl = ttlFor(result);
         if (!enabled || ttl == null) {
             return;
         }
 
         try {
-            String key = buildKey(content, model, promptVersion);
+            String key = buildKey(content, mediaKeys, model, promptVersion);
             redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(result), ttl);
             markAvailable();
         } catch (JsonProcessingException exception) {
@@ -106,11 +114,18 @@ public class GeminiModerationCache {
     }
 
     private String buildKey(String content, String model, String promptVersion) {
+        return buildKey(content, java.util.Collections.emptyList(), model, promptVersion);
+    }
+
+    private String buildKey(String content, java.util.List<String> mediaKeys, String model, String promptVersion) {
+        String mediaPart = (mediaKeys == null || mediaKeys.isEmpty()) ? "" : String.join(";", mediaKeys);
         String material = normalizeContent(content) + '\0'
+                + mediaPart + '\0'
                 + normalizeMetadata(model) + '\0'
                 + normalizeMetadata(promptVersion);
         return "connect:%s:ai-moderation:v1:%s".formatted(environment, sha256(material));
     }
+
 
     private String normalizeContent(String content) {
         return Normalizer.normalize(content == null ? "" : content, Normalizer.Form.NFKC)

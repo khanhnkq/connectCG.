@@ -61,5 +61,10 @@ public interface PostService {
 
         GroupPostDTO sharePost(Integer originalPostId, CreatePostRequest request, Integer userId);
 
-        void processAsyncModeration(Integer postId, String content, String actionType, java.time.Instant revisionTime);
+        void processAsyncModeration(Integer postId, String content, java.util.List<String> mediaUrls, String actionType, java.time.Instant revisionTime);
+
+        default void processAsyncModeration(Integer postId, String content, String actionType, java.time.Instant revisionTime) {
+                processAsyncModeration(postId, content, java.util.Collections.emptyList(), actionType, revisionTime);
+        }
 }
+

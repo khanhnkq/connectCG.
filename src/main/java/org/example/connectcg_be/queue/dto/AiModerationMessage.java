@@ -18,9 +18,11 @@ public class AiModerationMessage implements Serializable {
     private String messageId = UUID.randomUUID().toString();
     private Integer postId;
     private String content;
+    private java.util.List<String> mediaUrls;
     private String actionType; // "CREATE", "UPDATE", "SHARE"
     private Integer authorId;
     private Instant updatedAt;
     @Builder.Default
     private Instant createdAt = Instant.now();
+
 }
