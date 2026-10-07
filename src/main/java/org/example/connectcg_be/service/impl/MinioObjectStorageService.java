@@ -100,7 +100,7 @@ public class MinioObjectStorageService implements ObjectStorageService {
 
     private String publicReadPolicy(String bucket) {
         return """
-                {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::%s/avatar/*","arn:aws:s3:::%s/cover/*"]}]}
-                """.formatted(bucket, bucket).trim();
+                {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::%s/avatar/*","arn:aws:s3:::%s/cover/*","arn:aws:s3:::%s/post/*","arn:aws:s3:::%s/comment/*","arn:aws:s3:::%s/group/*"]}]}
+                """.formatted(bucket, bucket, bucket, bucket, bucket).trim();
     }
 }

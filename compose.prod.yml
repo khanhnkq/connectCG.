@@ -73,6 +73,7 @@ services:
     environment:
       PORT: 8080
       APP_ENV: production
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xms192m -Xmx384m -XX:+UseSerialGC}
       SERVER_FORWARD_HEADERS_STRATEGY: framework
       FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
       WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:?WEBSOCKET_ALLOWED_ORIGINS is required}

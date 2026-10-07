@@ -27,7 +27,7 @@ public enum MediaCategory {
     }
 
     public boolean isPublic() {
-        return this == AVATAR || this == COVER;
+        return this != CHAT;
     }
 
     public static MediaCategory fromObjectKey(String objectKey) {

@@ -72,6 +72,28 @@ class MediaUploadControllerTest {
     }
 
     @Test
+    void viewMedia_PostCategory_AllowsUnauthenticatedAccessWithPublicCache() {
+        MediaUploadService service = mock(MediaUploadService.class);
+        RateLimitService rateLimitService = mock(RateLimitService.class);
+        ObjectStorageService objectStorageService = mock(ObjectStorageService.class);
+        MediaUploadController controller = new MediaUploadController(service, rateLimitService, objectStorageService);
+
+        org.springframework.mock.web.MockHttpServletRequest request = new org.springframework.mock.web.MockHttpServletRequest();
+        request.setAttribute(org.springframework.web.servlet.HandlerMapping.PATH_WITHIN_HANDLER_MAPPING_ATTRIBUTE,
+                "/api/v1/media/view/post/2026-10/test.png");
+        request.setAttribute(org.springframework.web.servlet.HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE,
+                "/api/v1/media/view/**");
+
+        when(objectStorageService.load("post/2026-10/test.png"))
+                .thenReturn(new java.io.ByteArrayInputStream(new byte[]{1, 2, 3}));
+
+        ResponseEntity<org.springframework.core.io.Resource> response = controller.viewMedia(request, null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("max-age=31536000, public, immutable", response.getHeaders().getCacheControl());
+    }
+
+    @Test
     void viewMedia_PrivateCategory_UnauthenticatedReturnsUnauthorized() {
         MediaUploadService service = mock(MediaUploadService.class);
         RateLimitService rateLimitService = mock(RateLimitService.class);
