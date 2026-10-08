@@ -207,14 +207,17 @@ class OpenApiExportTest {
         assertTrue(openApiJson.contains("/api/v1/reports"));
         assertTrue(openApiJson.contains("/api/v1/auth"));
 
-        // Write openapi.json to connectCG. (backend) and connectCG (frontend)
+        // Write openapi.json to connectCG. (backend) and optionally connectCG (frontend if present)
         Path backendPath = Path.of("openapi.json");
         Files.writeString(backendPath, openApiJson);
         assertTrue(Files.exists(backendPath), "Backend openapi.json must be written");
 
-        Path frontendPath = Path.of("../connectCG/openapi.json");
-        Files.writeString(frontendPath, openApiJson);
-        assertTrue(Files.exists(frontendPath), "Frontend openapi.json must be written");
+        Path frontendDir = Path.of("../connectCG");
+        if (Files.isDirectory(frontendDir)) {
+            Path frontendPath = frontendDir.resolve("openapi.json");
+            Files.writeString(frontendPath, openApiJson);
+            assertTrue(Files.exists(frontendPath), "Frontend openapi.json must be written");
+        }
 
         System.out.println("Exported OpenAPI specification with " + paths.size() + " endpoints and " + allSchemas.size() + " schemas.");
     }

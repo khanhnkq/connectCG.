@@ -1,4 +1,4 @@
-name: Verify and publish backend image
+name: CI/CD Backend Pipeline
 
 on:
   pull_request:
@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   verify:
+    name: Test and Quality Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +26,7 @@ jobs:
         run: ./gradlew check --no-daemon
 
   publish:
+    name: Build & Package Docker Image
     if: github.event_name == 'push'
     needs: verify
     runs-on: ubuntu-latest
@@ -52,3 +54,25 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Azure VM
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and update backend on VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script_stop: true
+          script: |
+            cd /home/azureuser/connectcg
+            echo "Pulling latest backend image from GHCR..."
+            docker compose -f compose.prod.yml pull backend
+            echo "Recreating backend container..."
+            docker compose -f compose.prod.yml up -d --no-deps backend
+            echo "Container status:"
+            docker compose -f compose.prod.yml ps
