@@ -416,6 +416,13 @@ public class GeminiAiServiceImpl implements AiModerationService {
         if (url.contains("/connect-media/")) {
             return url.substring(url.indexOf("/connect-media/") + "/connect-media/".length());
         }
+        if (url.contains("/storage/buckets/") && url.contains("/files/")) {
+            int filesIdx = url.indexOf("/files/") + "/files/".length();
+            int slashAfter = url.indexOf('/', filesIdx);
+            int questionIdx = url.indexOf('?', filesIdx);
+            int endIdx = (slashAfter > 0) ? slashAfter : (questionIdx > 0 ? questionIdx : url.length());
+            return url.substring(filesIdx, endIdx);
+        }
         return null;
     }
 

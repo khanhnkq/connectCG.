@@ -12,12 +12,14 @@ import org.example.connectcg_be.config.MinioStorageProperties;
 import org.example.connectcg_be.service.ObjectStorageService;
 import org.example.connectcg_be.service.StorageException;
 import org.example.connectcg_be.service.StoredObject;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
+@ConditionalOnProperty(name = "app.storage.provider", havingValue = "minio")
 @RequiredArgsConstructor
 @Slf4j
 public class MinioObjectStorageService implements ObjectStorageService {
@@ -102,5 +104,10 @@ public class MinioObjectStorageService implements ObjectStorageService {
         return """
                 {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::%s/avatar/*","arn:aws:s3:::%s/cover/*","arn:aws:s3:::%s/post/*","arn:aws:s3:::%s/comment/*","arn:aws:s3:::%s/group/*"]}]}
                 """.formatted(bucket, bucket, bucket, bucket, bucket).trim();
+    }
+
+    @Override
+    public String getProviderName() {
+        return "MINIO";
     }
 }

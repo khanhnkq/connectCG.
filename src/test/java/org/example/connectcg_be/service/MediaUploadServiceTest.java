@@ -157,4 +157,28 @@ class MediaUploadServiceTest {
         verify(mediaRepository).findById(999);
         org.mockito.Mockito.verifyNoMoreInteractions(mediaRepository);
     }
+
+    @Test
+    void storesObjectWithAppwriteProviderAndAutoThumbnail() throws Exception {
+        User uploader = new User();
+        uploader.setId(42);
+        when(userService.findByIdUser(42)).thenReturn(uploader);
+        when(objectStorageService.getProviderName()).thenReturn("APPWRITE");
+        when(objectStorageService.generateThumbnailUrl(any(), eq(150), eq(150)))
+                .thenReturn("https://fra.cloud.appwrite.io/v1/storage/buckets/connect-storage/files/av_123/preview?output=webp");
+        when(objectStorageService.store(any(), any(Long.class), any(), any()))
+                .thenReturn(new StoredObject("connect-storage", "avatar/2026/08/id.png", "https://fra.cloud.appwrite.io/v1/storage/buckets/connect-storage/files/av_123/view?project=backend-storage-hub"));
+        when(mediaRepository.save(any(Media.class))).thenAnswer(invocation -> {
+            Media media = invocation.getArgument(0);
+            media.setId(99);
+            assertEquals("APPWRITE", media.getStorageProvider());
+            assertEquals("https://fra.cloud.appwrite.io/v1/storage/buckets/connect-storage/files/av_123/preview?output=webp", media.getThumbnailUrl());
+            return media;
+        });
+
+        MediaUploadResponse result = mediaUploadService.upload(png, "avatar", 42);
+
+        assertEquals(99, result.mediaId());
+        assertEquals("https://fra.cloud.appwrite.io/v1/storage/buckets/connect-storage/files/av_123/preview?output=webp", result.thumbnailUrl());
+    }
 }

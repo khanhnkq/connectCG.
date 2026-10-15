@@ -109,9 +109,31 @@ configure_env() {
   redis_password="$(prompt_secret 'Redis password' "$(env_get REDIS_PASSWORD || true)")"; redis_password="${redis_password:-$(random_secret 24)}"
   rabbitmq_user="$(prompt 'RabbitMQ username' "$(env_get RABBITMQ_USERNAME || true)")"; rabbitmq_user="${rabbitmq_user:-connect_rabbit}"
   rabbitmq_password="$(prompt_secret 'RabbitMQ password' "$(env_get RABBITMQ_PASSWORD || true)")"; rabbitmq_password="${rabbitmq_password:-$(random_secret 24)}"
-  minio_user="$(prompt 'MinIO access key' "$(env_get MINIO_ACCESS_KEY || true)")"; minio_user="${minio_user:-connect-minio}"
-  minio_password="$(prompt_secret 'MinIO secret key' "$(env_get MINIO_SECRET_KEY || true)")"; minio_password="${minio_password:-$(random_secret 32)}"
-  minio_url="$(prompt 'MinIO public URL' "$(env_get MINIO_PUBLIC_URL || true)")"
+
+  printf '\nObject Storage Provider:\n  1) Appwrite Cloud Pro (Khuyên dùng - Tiết kiệm RAM/Disk VPS, CDN Edge)\n  2) MinIO S3 Fallback (Docker trên VPS)\n'
+  local storage_choice storage_provider appwrite_endpoint appwrite_project appwrite_bucket appwrite_api_key
+  read -r -p "Chọn [1]: " storage_choice
+  storage_choice="${storage_choice:-1}"
+  if [[ "$storage_choice" == "1" ]]; then
+    storage_provider="appwrite"
+    appwrite_endpoint="$(prompt 'Appwrite endpoint' "$(env_get APPWRITE_ENDPOINT || true)")"; appwrite_endpoint="${appwrite_endpoint:-https://fra.cloud.appwrite.io/v1}"
+    appwrite_project="$(prompt 'Appwrite project ID' "$(env_get APPWRITE_PROJECT_ID || true)")"; appwrite_project="${appwrite_project:-backend-storage-hub}"
+    appwrite_bucket="$(prompt 'Appwrite bucket ID' "$(env_get APPWRITE_BUCKET_ID || true)")"; appwrite_bucket="${appwrite_bucket:-connect-storage}"
+    appwrite_api_key="$(prompt_secret 'Appwrite API key' "$(env_get APPWRITE_API_KEY || true)")"
+    minio_url=""
+    minio_user="connect-minio"
+    minio_password="$(random_secret 32)"
+  else
+    storage_provider="minio"
+    minio_user="$(prompt 'MinIO access key' "$(env_get MINIO_ACCESS_KEY || true)")"; minio_user="${minio_user:-connect-minio}"
+    minio_password="$(prompt_secret 'MinIO secret key' "$(env_get MINIO_SECRET_KEY || true)")"; minio_password="${minio_password:-$(random_secret 32)}"
+    minio_url="$(prompt 'MinIO public URL' "$(env_get MINIO_PUBLIC_URL || true)")"
+    appwrite_endpoint="https://fra.cloud.appwrite.io/v1"
+    appwrite_project="backend-storage-hub"
+    appwrite_bucket="connect-storage"
+    appwrite_api_key=""
+  fi
+
   health_url="$(prompt 'Backend health-check URL' "http://127.0.0.1:${backend_port}/api/v1/health/readiness")"
   smtp_host="$(prompt 'SMTP host' "$(env_get MAIL_HOST || true)")"
   smtp_port="$(prompt 'SMTP port' "$(env_get MAIL_PORT || true)")"; smtp_port="${smtp_port:-587}"
@@ -143,6 +165,13 @@ configure_env() {
   write_env_line "$TEMP_FILE" RABBITMQ_USERNAME "$rabbitmq_user"
   write_env_line "$TEMP_FILE" RABBITMQ_PASSWORD "$rabbitmq_password"
   write_env_line "$TEMP_FILE" RATE_LIMIT_ENABLED "true"
+  write_env_line "$TEMP_FILE" STORAGE_PROVIDER "$storage_provider"
+  write_env_line "$TEMP_FILE" APPWRITE_ENDPOINT "$appwrite_endpoint"
+  write_env_line "$TEMP_FILE" APPWRITE_PROJECT_ID "$appwrite_project"
+  write_env_line "$TEMP_FILE" APPWRITE_BUCKET_ID "$appwrite_bucket"
+  write_env_line "$TEMP_FILE" APPWRITE_API_KEY "$appwrite_api_key"
+  write_env_line "$TEMP_FILE" APPWRITE_CONNECT_TIMEOUT_MS "5000"
+  write_env_line "$TEMP_FILE" APPWRITE_READ_TIMEOUT_MS "30000"
   write_env_line "$TEMP_FILE" MINIO_PUBLIC_URL "$minio_url"
   write_env_line "$TEMP_FILE" MINIO_ACCESS_KEY "$minio_user"
   write_env_line "$TEMP_FILE" MINIO_SECRET_KEY "$minio_password"
@@ -193,7 +222,11 @@ compose() {
   if [[ "$(env_get DB_MODE)" == "local" ]]; then
     files+=(-f "$LOCAL_DB_COMPOSE")
   fi
-  BACKEND_TAG="${tag:-latest}" docker compose --env-file "$ENV_FILE" "${files[@]}" "$@"
+  local profile_args=()
+  if [[ "$(env_get STORAGE_PROVIDER)" == "minio" ]]; then
+    profile_args+=(--profile minio-fallback)
+  fi
+  BACKEND_TAG="${tag:-latest}" docker compose --env-file "$ENV_FILE" "${profile_args[@]}" "${files[@]}" "$@"
 }
 
 backup_database() {

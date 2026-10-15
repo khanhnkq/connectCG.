@@ -29,7 +29,7 @@ public interface MediaRepository extends JpaRepository<Media, Integer> {
             LEFT JOIN comments c ON c.media_id = m.id
             LEFT JOIN groups g ON g.cover_media_id = m.id
             LEFT JOIN chat_rooms cr ON cr.avatar_url = m.url
-            WHERE m.storage_provider = 'MINIO'
+            WHERE (:provider IS NULL OR m.storage_provider = :provider)
               AND m.is_deleted = FALSE
               AND m.uploaded_at < :cutoff
               AND (m.category IS NULL OR m.category <> 'CHAT')
@@ -42,5 +42,9 @@ public interface MediaRepository extends JpaRepository<Media, Integer> {
               AND cr.id IS NULL
             ORDER BY m.id
             """, nativeQuery = true)
-    List<Media> findUnattachedMinioMedia(@Param("cutoff") Instant cutoff, Pageable pageable);
+    List<Media> findUnattachedMedia(@Param("provider") String provider, @Param("cutoff") Instant cutoff, Pageable pageable);
+
+    default List<Media> findUnattachedMinioMedia(Instant cutoff, Pageable pageable) {
+        return findUnattachedMedia("MINIO", cutoff, pageable);
+    }
 }

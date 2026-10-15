@@ -68,13 +68,23 @@ public class MediaUploadService {
         media.setUrl(stored.url());
         media.setType(validated.mediaType());
         media.setSizeBytes(Math.toIntExact(optimized.sizeBytes()));
-        media.setStorageProvider("MINIO");
+        media.setStorageProvider(objectStorageService.getProviderName());
         media.setStorageBucket(stored.bucket());
         media.setObjectKey(stored.objectKey());
         media.setContentType(optimized.contentType());
         media.setCategory(category.path().toUpperCase());
         media.setUploadedAt(Instant.now());
         media.setIsDeleted(false);
+
+        // Tự động gán WebP preview thumbnail nếu storage provider hỗ trợ (Appwrite CDN)
+        if ("IMAGE".equalsIgnoreCase(validated.mediaType()) && category.isPublic()) {
+            int thumbDim = (category == MediaCategory.AVATAR) ? 150 : 360;
+            String autoThumbUrl = objectStorageService.generateThumbnailUrl(objectKey, thumbDim, thumbDim);
+            if (autoThumbUrl != null) {
+                media.setThumbnailUrl(autoThumbUrl);
+                log.info("Auto WebP thumbnail generated: key={} url={}", objectKey, autoThumbUrl);
+            }
+        }
 
         // Lưu thumbnail phía client nếu có gửi kèm (đặc biệt cho video)
         if ("VIDEO".equalsIgnoreCase(validated.mediaType()) && thumbnail != null && !thumbnail.isEmpty()) {

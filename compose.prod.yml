@@ -20,12 +20,13 @@ services:
     networks: [backend]
 
   minio:
+    profiles: ["minio-fallback"]
     image: quay.io/minio/minio:RELEASE.2025-06-13T11-33-47Z
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-connect-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-connect-secret}
     ports:
       - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
       - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
@@ -63,8 +64,6 @@ services:
     restart: unless-stopped
     depends_on:
       redis:
-        condition: service_healthy
-      minio:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
@@ -105,10 +104,17 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-dummy-google-client-secret}
       FACEBOOK_CLIENT_ID: ${FACEBOOK_CLIENT_ID:-dummy-facebook-client-id}
       FACEBOOK_CLIENT_SECRET: ${FACEBOOK_CLIENT_SECRET:-dummy-facebook-client-secret}
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:?MINIO_PUBLIC_URL is required}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-appwrite}
+      APPWRITE_ENDPOINT: ${APPWRITE_ENDPOINT:-https://fra.cloud.appwrite.io/v1}
+      APPWRITE_PROJECT_ID: ${APPWRITE_PROJECT_ID:-backend-storage-hub}
+      APPWRITE_BUCKET_ID: ${APPWRITE_BUCKET_ID:-connect-storage}
+      APPWRITE_API_KEY: ${APPWRITE_API_KEY:-}
+      APPWRITE_CONNECT_TIMEOUT_MS: ${APPWRITE_CONNECT_TIMEOUT_MS:-5000}
+      APPWRITE_READ_TIMEOUT_MS: ${APPWRITE_READ_TIMEOUT_MS:-30000}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000/connect-media}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-connect-minio}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-connect-secret}
       MINIO_BUCKET: ${MINIO_BUCKET:-connect-media}
       REDIS_HOST: redis
       REDIS_PORT: 6379

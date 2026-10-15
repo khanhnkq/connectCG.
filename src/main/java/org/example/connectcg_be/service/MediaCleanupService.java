@@ -38,8 +38,9 @@ public class MediaCleanupService {
 
     @Transactional
     public int cleanupOlderThan(Instant cutoff, int limit) {
-        List<Media> candidates = mediaRepository.findUnattachedMinioMedia(
-                cutoff, PageRequest.of(0, Math.max(1, limit)));
+        String provider = objectStorageService.getProviderName();
+        List<Media> candidates = mediaRepository.findUnattachedMedia(
+                provider, cutoff, PageRequest.of(0, Math.max(1, limit)));
         int cleaned = 0;
         for (Media media : candidates) {
             try {
@@ -47,9 +48,11 @@ public class MediaCleanupService {
                 media.setIsDeleted(true);
                 mediaRepository.save(media);
                 cleaned++;
+                log.info("media_cleanup_deleted mediaId={} objectKey={} provider={}",
+                        media.getId(), media.getObjectKey(), provider);
             } catch (RuntimeException exception) {
-                log.warn("media_cleanup_failed mediaId={} objectKey={}",
-                        media.getId(), media.getObjectKey(), exception);
+                log.warn("media_cleanup_failed mediaId={} objectKey={} provider={}",
+                        media.getId(), media.getObjectKey(), provider, exception);
             }
         }
         return cleaned;
