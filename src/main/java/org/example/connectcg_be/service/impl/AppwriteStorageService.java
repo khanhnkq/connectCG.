@@ -7,6 +7,7 @@ import org.example.connectcg_be.service.ObjectStorageService;
 import org.example.connectcg_be.service.StorageException;
 import org.example.connectcg_be.service.StoredObject;
 import org.example.connectcg_be.util.AppwriteStorageUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpStatusCode;
@@ -28,6 +29,7 @@ public class AppwriteStorageService implements ObjectStorageService {
     private final AppwriteStorageProperties properties;
     private final RestClient restClient;
 
+    @Autowired
     public AppwriteStorageService(AppwriteStorageProperties properties) {
         this.properties = properties;
 
